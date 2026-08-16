@@ -51,6 +51,13 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", default=None, help="default: auto mps > cuda > cpu")
     p.add_argument("--log-every", type=int, default=50)
+    p.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=300,
+        help="also save a serving checkpoint every N steps (0 = epoch end only), "
+        "so an interrupted run still leaves a usable model",
+    )
     return p.parse_args()
 
 
@@ -269,6 +276,9 @@ def main() -> None:
                 )
                 running_loss = 0.0
                 running_n = 0
+            if args.checkpoint_every and step % args.checkpoint_every == 0:
+                save_checkpoint(model, tokenizer, args.out, args, {"mid_epoch_step": float(step)})
+                write_training_log(args.out, log_steps, log_epochs)
 
         metrics = evaluate(model, tokenizer, val_windows, args.batch_size, device)
         log_epochs.append({"epoch": epoch, **metrics})

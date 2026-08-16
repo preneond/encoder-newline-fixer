@@ -57,6 +57,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--log-every", type=int, default=100)
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=500,
+        help="also save a serving checkpoint every N steps (0 = end only), "
+        "so an interrupted run still leaves a usable model",
+    )
     return parser.parse_args()
 
 
@@ -87,6 +94,27 @@ def collate(batch: list[Window]) -> Batch:
             pos_t[row, : len(positions)] = torch.tensor(positions, dtype=torch.long)
             lab_t[row, : len(kept)] = torch.tensor(kept, dtype=torch.long)
     return ids_t, pos_t, lab_t
+
+
+def save_artifacts(
+    out: Path,
+    model: CharBiLSTM,
+    state: dict[str, Tensor],
+    max_words: int,
+    overlap: int,
+    extra: dict[str, Any],
+) -> None:
+    """Write model.pt + config.json in the layout ScratchGapPredictor.load expects."""
+    out.mkdir(parents=True, exist_ok=True)
+    torch.save(state, out / "model.pt")
+    config: dict[str, Any] = {
+        **model.config(),
+        "max_words": max_words,
+        "overlap": overlap,
+        "max_bytes": MAX_BYTES,
+        **extra,
+    }
+    (out / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 
 
 def write_training_log(out: Path, steps: list[dict], epochs: list[dict]) -> None:
@@ -237,6 +265,17 @@ def main() -> None:
                 log_steps.append({"step": step, "loss": running / since_log, "lr": lr_now})
                 running = 0.0
                 since_log = 0
+            if args.checkpoint_every and step % args.checkpoint_every == 0:
+                snapshot = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+                save_artifacts(
+                    args.out,
+                    model,
+                    snapshot,
+                    args.max_words,
+                    overlap,
+                    {"mid_epoch_step": step, "epoch": epoch},
+                )
+                write_training_log(args.out, log_steps, log_epochs)
         metrics = evaluate(model, val_batches, device)
         macro_f1 = float(metrics["macro_f1_structural"])
         print(
@@ -264,17 +303,14 @@ def main() -> None:
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
 
     assert best_state is not None
-    args.out.mkdir(parents=True, exist_ok=True)
-    torch.save(best_state, args.out / "model.pt")
-    config: dict[str, Any] = {
-        **model.config(),
-        "max_words": args.max_words,
-        "overlap": overlap,
-        "max_bytes": MAX_BYTES,
-        "best_epoch": best_epoch,
-        "val_metrics": best_metrics,
-    }
-    (args.out / "config.json").write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    save_artifacts(
+        args.out,
+        model,
+        best_state,
+        args.max_words,
+        overlap,
+        {"best_epoch": best_epoch, "val_metrics": best_metrics},
+    )
     print(f"saved best checkpoint (epoch {best_epoch}, macro-F1 {best_f1:.4f}) to {args.out}")
 
 
