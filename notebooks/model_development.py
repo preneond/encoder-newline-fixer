@@ -523,11 +523,11 @@ def _(MODEL_COLORS, mo, px, steps_df):
 
 @app.cell
 def _(MODEL_COLORS, epochs_df, mo, px):
-    mo.stop(epochs_df.empty or "macro_f1_breaks" not in epochs_df.columns, mo.md(""))
+    mo.stop(epochs_df.empty or "macro_f1_structural" not in epochs_df.columns, mo.md(""))
     fig_val = px.line(
         epochs_df,
         x="epoch",
-        y="macro_f1_breaks",
+        y="macro_f1_structural",
         color="model",
         markers=True,
         title="Validation macro-F1 over JOIN/NEWLINE/PARA per epoch",
@@ -595,8 +595,23 @@ def _(DATA_DIR, RESULTS_DIR, eval_btn, eval_limit, mo, pre_block, run_script):
 
 @app.cell
 def _(RESULTS_DIR, eval_ready, read_json):
-    eval_results = read_json(RESULTS_DIR / "eval_results.json") if eval_ready else None
-    model_metrics: dict = (eval_results or {}).get("models", {})
+    _raw = read_json(RESULTS_DIR / "eval_results.json") if eval_ready else None
+    # Adapt scripts/evaluate.py's schema ({"results": [...]}) to the notebook's flat view.
+    model_metrics: dict = {
+        _r["model"]: {
+            "gap_accuracy": _r["gap_accuracy"],
+            "per_class": _r["per_class"],
+            "macro_f1_breaks": _r["macro_f1_join_newline_para"],
+            "break": _r["break"],
+            "pk": _r["mean_pk"],
+            "windowdiff": _r["mean_windowdiff"],
+            "edit_similarity": _r["mean_edit_similarity"],
+            "exact_match": _r["exact_match_rate"],
+            "words_per_sec": _r["words_per_sec"],
+            "confusion": _r["confusion_matrix"],
+        }
+        for _r in (_raw or {}).get("results", [])
+    }
     return (model_metrics,)
 
 
