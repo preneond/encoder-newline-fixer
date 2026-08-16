@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Data & model artifacts (regenerate via scripts/, see report.md)
+data/
+artifacts/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
