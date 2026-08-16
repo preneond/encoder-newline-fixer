@@ -21,6 +21,7 @@ import torch
 from torch import Tensor, nn
 
 from newlinefix.data import Window, load_training_windows
+from newlinefix.distill import EncoderTeacher, distillation_loss
 from newlinefix.gaps import GAP_LABELS, JOIN, NEWLINE, NUM_GAP_CLASSES, PARA
 from newlinefix.models.scratch import (
     MAX_BYTES,
@@ -64,6 +65,15 @@ def parse_args() -> argparse.Namespace:
         help="also save a serving checkpoint every N steps (0 = end only), "
         "so an interrupted run still leaves a usable model",
     )
+    parser.add_argument(
+        "--teacher",
+        type=Path,
+        default=None,
+        help="dir with a fine-tuned encoder (scripts/train_encoder.py output); "
+        "when set, adds a knowledge-distillation loss over its per-gap soft targets",
+    )
+    parser.add_argument("--distill-alpha", type=float, default=0.5, help="KD loss weight in [0,1]")
+    parser.add_argument("--distill-temp", type=float, default=2.0, help="KD softmax temperature")
     return parser.parse_args()
 
 
@@ -208,6 +218,20 @@ def main() -> None:
     loss_fn = nn.CrossEntropyLoss(weight=weights, ignore_index=IGNORE_INDEX)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
+    teacher: EncoderTeacher | None = None
+    distill_extra: dict[str, Any] = {}
+    if args.teacher is not None:
+        teacher = EncoderTeacher(args.teacher, device)
+        distill_extra = {
+            "teacher": str(args.teacher),
+            "distill_alpha": args.distill_alpha,
+            "distill_temp": args.distill_temp,
+        }
+        print(
+            f"distilling from {args.teacher} "
+            f"(alpha={args.distill_alpha}, temperature={args.distill_temp})"
+        )
+
     steps_per_epoch = math.ceil(len(train_windows) / args.batch_size)
     total_steps = max(1, args.epochs * steps_per_epoch)
     warmup_steps = max(1, int(args.warmup_frac * total_steps))
@@ -248,6 +272,12 @@ def main() -> None:
             ids, positions, labels = collate(batch)
             logits = gather_gap_logits(model(ids.to(device)), positions.to(device))
             loss = loss_fn(logits.reshape(-1, NUM_GAP_CLASSES), labels.reshape(-1).to(device))
+            if teacher is not None:
+                t_logits, t_valid = teacher.gap_logits(batch, logits.size(1))
+                kd = distillation_loss(
+                    logits, t_logits, t_valid, labels.to(device), args.distill_temp
+                )
+                loss = (1.0 - args.distill_alpha) * loss + args.distill_alpha * kd
             optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -273,7 +303,7 @@ def main() -> None:
                     snapshot,
                     args.max_words,
                     overlap,
-                    {"mid_epoch_step": step, "epoch": epoch},
+                    {"mid_epoch_step": step, "epoch": epoch, **distill_extra},
                 )
                 write_training_log(args.out, log_steps, log_epochs)
         metrics = evaluate(model, val_batches, device)
@@ -309,7 +339,7 @@ def main() -> None:
         best_state,
         args.max_words,
         overlap,
-        {"best_epoch": best_epoch, "val_metrics": best_metrics},
+        {"best_epoch": best_epoch, "val_metrics": best_metrics, **distill_extra},
     )
     print(f"saved best checkpoint (epoch {best_epoch}, macro-F1 {best_f1:.4f}) to {args.out}")
 

@@ -14,8 +14,7 @@ import streamlit as st
 from newlinefix.predict import GapPredictor, fix_text
 
 ROOT = Path(__file__).resolve().parent.parent
-ENCODER_DIR = ROOT / "artifacts" / "encoder"
-SCRATCH_DIR = ROOT / "artifacts" / "scratch"
+ARTIFACTS = ROOT / "artifacts"
 
 README_EXAMPLE = (
     "3.2.3 Applications of Attention\n"
@@ -33,26 +32,46 @@ MODEL_HELP = {
 }
 
 
-def available_models() -> list[str]:
-    models = []
-    if (ENCODER_DIR / "predictor_config.json").exists():
-        models.append("encoder")
-    if (SCRATCH_DIR / "config.json").exists():
-        models.append("scratch")
-    return [*models, "rules", "majority"]
+def _describe(kind: str, directory: Path) -> str:
+    """Help text for an auto-discovered artifact dir, from its saved config."""
+    import json
+
+    if kind == "encoder":
+        cfg = json.loads((directory / "predictor_config.json").read_text(encoding="utf-8"))
+        return f"fine-tuned `{cfg.get('model_name', '?')}` token-gap classifier"
+    cfg = json.loads((directory / "config.json").read_text(encoding="utf-8"))
+    if cfg.get("teacher"):
+        return f"byte-level BiLSTM distilled from `{cfg['teacher']}`"
+    return "byte-level BiLSTM trained from scratch on our data"
+
+
+def discover_models() -> dict[str, tuple[str, Path | None]]:
+    """name -> (kind, artifact dir). Any artifacts/*/ dir with a known config counts."""
+    models: dict[str, tuple[str, Path | None]] = {}
+    if ARTIFACTS.is_dir():
+        for directory in sorted(ARTIFACTS.iterdir()):
+            if (directory / "predictor_config.json").exists():
+                models[directory.name] = ("encoder", directory)
+            elif (directory / "config.json").exists() and (directory / "model.pt").exists():
+                models[directory.name] = ("scratch", directory)
+    models["rules"] = ("rules", None)
+    models["majority"] = ("majority", None)
+    return models
 
 
 @st.cache_resource(show_spinner="Loading model…")
-def load_predictor(name: str) -> GapPredictor:
-    if name == "encoder":
+def load_predictor(kind: str, directory: Path | None) -> GapPredictor:
+    if kind == "encoder":
         from newlinefix.models.encoder import EncoderGapPredictor
 
-        return EncoderGapPredictor.load(ENCODER_DIR)
-    if name == "scratch":
+        assert directory is not None
+        return EncoderGapPredictor.load(directory)
+    if kind == "scratch":
         from newlinefix.models.scratch import ScratchGapPredictor
 
-        return ScratchGapPredictor.load(SCRATCH_DIR)
-    if name == "rules":
+        assert directory is not None
+        return ScratchGapPredictor.load(directory)
+    if kind == "rules":
         from newlinefix.models.baseline import RuleBaseline
 
         return RuleBaseline()
@@ -70,19 +89,23 @@ st.markdown(
     "**your words are never altered**."
 )
 
-models = available_models()
+models = discover_models()
 with st.sidebar:
     st.header("Model")
     model_name = st.radio(
-        "Choose a model", models, format_func=lambda n: f"{n}", label_visibility="collapsed"
+        "Choose a model", list(models), format_func=lambda n: f"{n}", label_visibility="collapsed"
     )
-    st.caption(MODEL_HELP[model_name])
+    kind, artifact_dir = models[model_name]
+    if model_name in MODEL_HELP:
+        st.caption(MODEL_HELP[model_name])
+    elif artifact_dir is not None:
+        st.caption(_describe(kind, artifact_dir))
     if "encoder" not in models:
         st.info("`encoder` and/or `scratch` appear here once trained (see report.md).")
 
 text = st.text_area("Broken text", value=README_EXAMPLE, height=220)
 if st.button("Fix newlines", type="primary"):
-    predictor = load_predictor(model_name)
+    predictor = load_predictor(kind, artifact_dir)
     start = time.perf_counter()
     fixed = fix_text(text, predictor)
     elapsed_ms = 1000 * (time.perf_counter() - start)

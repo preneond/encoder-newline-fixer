@@ -129,20 +129,78 @@ targets). Macro-F1 is over {JOIN, NEWLINE, PARA}; Pk/WindowDiff lower is better.
 | Model | Gap acc | Macro-F1 | Break-F1 | Pk | WinDiff | EditSim | Words/s | ms/doc |
 |---|---|---|---|---|---|---|---|---|
 | majority | 0.957 | 0.000 | 0.000 | 0.341 | 0.341 | 0.986 | ~10⁹ | 0.00 |
-| rules | 0.954 | 0.034 | 0.040 | 0.348 | 0.352 | 0.986 | ~10⁷ | 0.18 |
-| **encoder** | **0.979** | **0.789** | **0.748** | **0.249** | **0.328** | **0.993** | 13,802 | 138 |
-| scratch | 0.959 | 0.632 | 0.617 | 0.365 | 0.485 | 0.987 | 2,172 | 875 |
+| rules | 0.954 | 0.034 | 0.040 | 0.348 | 0.352 | 0.986 | ~10⁷ | 0.19 |
+| **encoder** | **0.981** | **0.815** | **0.769** | **0.240** | **0.311** | **0.994** | 10,288 | 185 |
+| scratch | 0.959 | 0.632 | 0.617 | 0.365 | 0.485 | 0.987 | 2,801 | 678 |
 
-Training budgets were deliberately small (single epoch, ~6 minutes each on an Apple
-M4 Max via MPS): encoder 8k windows, scratch 30k windows. Validation macro-F1 scaled
-0.53 → 0.76 when the encoder's data grew 2k → 8k windows, so there is clear headroom;
-the full corpus is ~260k windows.
+The served encoder is the lr=1e-4 fine-tune selected by the learning-rate sweep in
+[Model exploration](#model-exploration). Training budgets were deliberately small
+(single epoch, ~6–16 minutes each on an Apple M4 Max via MPS): encoder 8k windows,
+scratch 30k windows. Validation macro-F1 scaled 0.53 → 0.78 when the encoder's data
+grew 2k → 8k windows, so there is clear headroom; the full corpus is ~260k windows.
+(Words/s figures vary ±30% run-to-run with machine load; quality metrics are exactly
+reproducible via `--seed`.)
 
 On the challenge's own example, the encoder reproduces the expected output almost
 exactly — heading isolated, paragraph break placed, `• bullet` on its own line, and
 `que\nries` repaired to `queries` (its one deviation: a blank line instead of a single
 newline after "ways:", the NEWLINE↔PARA confusion that dominates its residual errors).
 Full per-model outputs: `results/eval_results.md`.
+
+## Model exploration
+
+Beyond the headline comparison, two further axes were explored under the same
+protocol (merged table: `results/exploration_results.md`). Val is validation
+macro-F1 over {JOIN, NEWLINE, PARA}; test metrics are on the held-out 120-doc split.
+
+### Learning-rate sweep (distilroberta-base, 8k windows, 1 epoch)
+
+| lr | val macro-F1 | test macro-F1 | test break-F1 | test Pk |
+|---|---|---|---|---|
+| 2e-5 | 0.682 | 0.729 | 0.696 | 0.299 |
+| 5e-5 | 0.760 | 0.789 | 0.748 | 0.249 |
+| **1e-4** | **0.784** | **0.815** | **0.769** | **0.240** |
+| 2e-4 | 0.774 | 0.809 | 0.760 | 0.250 |
+
+The conventional 5e-5 fine-tuning rate left ~2.5 points on the table: with a single
+epoch over 8k windows the head benefits from a hotter schedule, and quality only
+starts regressing past 1e-4. **The lr=1e-4 model was promoted to be the served
+encoder** (and the trainer's new default) after verifying it fixes the README
+example identically to the previous model.
+
+### Distillation: encoder teacher → byte-BiLSTM student
+
+The fine-tuned encoder was frozen as a teacher and the 2.4M-param BiLSTM retrained
+with per-gap soft targets: `loss = (1−α)·CE(hard) + α·τ²·KL(student/τ ‖ teacher/τ)`
+with τ = 2 (`src/newlinefix/distill.py`; `scripts/train_scratch.py --teacher`).
+Same data budget as the scratch baseline (30k windows, 1 epoch).
+
+| student (2.4M params, identical architecture) | test macro-F1 | test break-F1 | test Pk |
+|---|---|---|---|
+| scratch (α = 0 — hard labels only) | 0.632 | 0.617 | 0.365 |
+| **distilled, α = 0.5** | **0.675** | **0.657** | **0.323** |
+| distilled, α = 0.9* | 0.634 | 0.627 | 0.322 |
+
+\* the α = 0.9 run was interrupted at step 400/469 and scored from its last
+checkpoint; the LR had already decayed to near zero, so the ranking is reliable.
+
+Balanced hard+soft targets buy **+4.3 test macro-F1 at identical size and speed**,
+recovering about a quarter of the gap to the 34×-larger teacher. The teacher's soft
+targets carry inter-class structure a hard label can't ("this gap is NEWLINE-or-PARA,
+certainly not SPACE"). Going nearly all-soft (α = 0.9) gives the gain back — the
+hard-label term still anchors the decision boundary for the rare classes.
+
+### What each technique is for
+
+- **Fine-tuned encoder, lr-swept** — the quality/throughput sweet spot; the served model.
+- **Distilled BiLSTM** — for targets that can't take an 82M-param transformer
+  (CPU-only edge, strict memory): distillation upgrades the tiny model for free at
+  inference time. The same recipe would distill into a smaller transformer as well.
+- **Backbone sweep** — `train_encoder.py --model-name` fine-tunes any HF token-
+  classification backbone and `evaluate.py --extra NAME=encoder:DIR` scores it;
+  candidates staged for comparison are `electra-small-discriminator` (14M),
+  `distilbert-base-cased` (66M) and `roberta-base` (125M) to trace the
+  size/quality/latency frontier around the served 82M model.
 
 ## Conclusion
 
@@ -153,12 +211,12 @@ token-classification head. It was compared against a from-scratch byte-level BiL
 
 **Fine-tuning a pretrained encoder worked best on every axis measured:**
 
-1. **Quality** — test macro-F1 **0.789 vs 0.632** for the from-scratch model
-   (break-F1 0.748 vs 0.617, Pk 0.249 vs 0.365), despite training on *4× less data*
+1. **Quality** — test macro-F1 **0.815 vs 0.632** for the from-scratch model
+   (break-F1 0.769 vs 0.617, Pk 0.240 vs 0.365), despite training on *4× less data*
    (8k vs 30k windows). That gap is what pretrained language knowledge buys: the
    encoder already knows "queries" is a word and where sentences break; the BiLSTM
    has to learn English from 5MB of bytes.
-2. **Speed, surprisingly** — 13.8k vs 2.2k words/s. The 34×-larger transformer runs
+2. **Speed, surprisingly** — ~10k vs ~2.8k words/s. The 34×-larger transformer runs
    one parallel pass per window, while the recurrent model steps byte-by-byte
    (~1,200 sequential steps per window), which parallel hardware cannot amortize at
    batch size 1.
@@ -166,10 +224,14 @@ token-classification head. It was compared against a from-scratch byte-level BiL
    baseline's 95.7% gap *accuracy* shows why accuracy is the wrong metric here —
    the informative signals are per-class F1 and segmentation error.
 
-The from-scratch model is still a respectable result for 2.4M parameters and six
+Two cheap wins came out of [Model exploration](#model-exploration): a learning-rate
+sweep moved the encoder 0.789 → 0.815 at zero extra cost, and knowledge distillation
+from the encoder teacher moved the tiny BiLSTM 0.632 → 0.675 at identical size and
+speed. The from-scratch model remains a respectable result for 2.4M parameters and
 minutes of training — but on this task, at this data scale, **transfer learning
 dominates training from scratch on quality, data-efficiency, and (at batch-1 GPU
-inference) even speed.** The encoder is therefore the model behind the service.
+inference) even speed.** The lr-swept encoder is therefore the model behind the
+service.
 
 ## Engineering notes
 

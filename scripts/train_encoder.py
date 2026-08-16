@@ -43,7 +43,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--max-words", type=int, default=180)
     p.add_argument("--epochs", type=int, default=2)
     p.add_argument("--batch-size", type=int, default=32)
-    p.add_argument("--lr", type=float, default=5e-5)
+    # Default from the lr sweep in report.md: {2e-5: 0.68, 5e-5: 0.76, 1e-4: 0.78, 2e-4: 0.77}
+    # val macro-F1 at the 8k-window budget.
+    p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--warmup-frac", type=float, default=0.06)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--train-windows", type=int, default=None)

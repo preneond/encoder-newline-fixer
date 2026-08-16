@@ -116,6 +116,23 @@ REGISTRY: dict[str, Callable[[argparse.Namespace], GapPredictor]] = {
     "scratch": _make_scratch,
 }
 
+#: --extra KIND values mapped to the module whose predictor loads the artifacts.
+KIND_MODULES = {"encoder": "newlinefix.models.encoder", "scratch": "newlinefix.models.scratch"}
+
+
+def register_extra(spec: str) -> str:
+    """Register an '--extra NAME=KIND:DIR' model in REGISTRY; returns NAME."""
+    name, eq, rest = spec.partition("=")
+    kind, colon, directory = rest.partition(":")
+    if not (name and eq and colon and directory) or kind not in KIND_MODULES:
+        raise SystemExit(
+            f"bad --extra spec {spec!r}; expected NAME=KIND:DIR with KIND one of "
+            + "|".join(KIND_MODULES)
+        )
+    module = KIND_MODULES[kind]
+    REGISTRY[name] = lambda _args: _load_trained(module, directory)
+    return name
+
 
 def build_examples(texts: list[str], seed: int, cfg: CorruptionConfig) -> list[Example]:
     examples: list[Example] = []
@@ -234,6 +251,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--encoder-dir", default="artifacts/encoder")
     parser.add_argument("--scratch-dir", default="artifacts/scratch")
+    parser.add_argument(
+        "--extra",
+        action="append",
+        default=[],
+        metavar="NAME=KIND:DIR",
+        help="register an additional trained model from an artifact dir, e.g. "
+        "electra=encoder:artifacts/encoder-electra-small (repeatable)",
+    )
     parser.add_argument("--limit", type=int, default=500, help="max documents to evaluate")
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--out", default="results", help="output directory for reports")
@@ -242,6 +267,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    for spec in args.extra:
+        register_extra(spec)
     names = list(REGISTRY) if args.models == "all" else [s.strip() for s in args.models.split(",")]
     unknown = [n for n in names if n not in REGISTRY]
     if unknown:
