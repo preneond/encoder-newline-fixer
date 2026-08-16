@@ -46,9 +46,16 @@ class GapText:
             )
 
 
+# Unicode line boundaries normalized to "\n" before counting; U+2029 is a paragraph
+# separator, hence "\n\n". "\r\n" is collapsed first so it counts once.
+_LINE_BREAKS = str.maketrans(
+    {"\r": "\n", "\x0b": "\n", "\x0c": "\n", "\x85": "\n", "\u2028": "\n", "\u2029": "\n\n"}
+)
+
+
 def classify_separator(sep: str) -> int:
-    """Map a raw whitespace separator to a gap class by its newline count."""
-    newlines = sep.count("\n")
+    """Map a raw whitespace separator to a gap class by its line-break count."""
+    newlines = sep.replace("\r\n", "\n").translate(_LINE_BREAKS).count("\n")
     if newlines == 0:
         return SPACE
     if newlines == 1:

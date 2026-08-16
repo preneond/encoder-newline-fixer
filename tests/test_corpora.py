@@ -46,12 +46,23 @@ class TestRemoveCodeFences:
 
 class TestRemoveDisplayMath:
     def test_removes_dollar_blocks(self) -> None:
+        # Blocks are replaced by a space (not ""), so flanking words never splice.
         text = "before $$x^2 +\ny^2$$ after"
-        assert remove_display_math(text) == "before  after"
+        assert remove_display_math(text) == "before   after"
 
     def test_removes_bracket_blocks(self) -> None:
         text = "loss is\n\n\\[\\mathcal{L} = a + b \\tag{3}\\]\n\nwhere a is"
-        assert remove_display_math(text) == "loss is\n\n\n\nwhere a is"
+        assert remove_display_math(text) == "loss is\n\n \n\nwhere a is"
+
+    def test_unpaired_opener_does_not_eat_prose(self) -> None:
+        # An unpaired $$ must not swallow paragraphs up to an unrelated closer.
+        text = "broken $$ formula\n\nplain prose here\n\nmore $$x$$ math"
+        cleaned = remove_display_math(text)
+        assert "plain prose here" in cleaned
+        assert "x" not in cleaned.split("more")[1]
+
+    def test_words_not_spliced_across_removed_math(self) -> None:
+        assert "wordafter" not in remove_display_math("word$$x$$after")
 
     def test_keeps_inline_math(self) -> None:
         text = "the rate \\(\\alpha\\) is small"

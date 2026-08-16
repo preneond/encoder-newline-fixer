@@ -308,6 +308,7 @@ def _(DATA_DIR, doc_idx, mo, pre_block, prep_done):
     import itertools
     import random
 
+    from newlinefix.corpora import truncate_words
     from newlinefix.corruption import CorruptionConfig, make_example, render_corrupted
     from newlinefix.data import read_documents
     from newlinefix.gaps import text_to_gaps as _t2g
@@ -315,7 +316,7 @@ def _(DATA_DIR, doc_idx, mo, pre_block, prep_done):
     mo.stop(not prep_done, mo.md("_Prepare data first to see a corruption example._"))
     _doc = next(itertools.islice(read_documents(DATA_DIR / "val.jsonl"), doc_idx.value, None), None)
     mo.stop(_doc is None, mo.md("_Doc index out of range for this corpus size._"))
-    _doc = " ".join(_doc.split()[:180]) if len(_doc.split()) > 180 else _doc
+    _doc = truncate_words(_doc, 180)  # gap-preserving truncation keeps the \n structure visible
     _rng = random.Random(doc_idx.value)
     _cfg = CorruptionConfig()
     _words, _labels = make_example(_t2g(_doc), _rng, _cfg)

@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import math
 import random
 import sys
 import time
@@ -154,16 +155,20 @@ def evaluate_model(name: str, predictor: GapPredictor, examples: list[Example]) 
         exact += int(pred_text == clean)
     n = len(examples)
     cm = confusion_matrix(all_true, all_pred)
+    # pk/windowdiff are NaN for docs too short to probe; exclude them from means.
+    pk_values = [v for v in pks if not math.isnan(v)]
+    wd_values = [v for v in wds if not math.isnan(v)]
     return {
         "model": name,
         "n_docs": n,
         "n_gaps": len(all_true),
+        "n_docs_segmentation_scored": len(pk_values),
         "gap_accuracy": accuracy(cm),
         "per_class": per_class_prf(cm),
         "macro_f1_join_newline_para": macro_f1(cm, [JOIN, NEWLINE, PARA]),
         "break": break_prf(all_true, all_pred),
-        "mean_pk": sum(pks) / n,
-        "mean_windowdiff": sum(wds) / n,
+        "mean_pk": sum(pk_values) / len(pk_values) if pk_values else float("nan"),
+        "mean_windowdiff": sum(wd_values) / len(wd_values) if wd_values else float("nan"),
         "mean_edit_similarity": sum(sims) / n,
         "exact_match_rate": exact / n,
         "words_per_sec": total_words / max(total_time, 1e-9),
@@ -243,10 +248,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: unknown models {unknown}; choose from {list(REGISTRY)}", file=sys.stderr)
         return 2
 
-    texts = list(read_documents(args.data))[: args.limit]
+    texts = list(read_documents(args.data))
     if not texts:
         print(f"error: no documents found in {args.data}", file=sys.stderr)
         return 2
+    if args.limit < len(texts):
+        # Splits are written source-grouped; a prefix would evaluate one source only.
+        texts = random.Random(args.seed).sample(texts, args.limit)
     examples = build_examples(texts, args.seed, CorruptionConfig())
 
     results: list[dict] = []

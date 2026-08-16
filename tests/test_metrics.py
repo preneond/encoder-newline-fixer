@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
 
@@ -96,9 +98,10 @@ def test_edit_similarity_hand_cases() -> None:
     # NEWLINE vs PARA: one insertion, max length 4.
     assert edit_similarity("a\nb", "a\n\nb") == pytest.approx(1 - 1 / 4)
     assert edit_similarity("", "") == 1.0
-    # Word sequences differ (missed JOIN): difflib fallback, 4 matched chars of 3+4.
+    # Word sequences differ (missed JOIN) but the char streams match: the boundary
+    # decomposition still applies — one ''-vs-' ' boundary, max length 8.
     ratio = edit_similarity("que ries", "queries")
-    assert ratio == pytest.approx(2 * 7 / 15)
+    assert ratio == pytest.approx(1 - 1 / 8)
     # Non-canonical whitespace still classifies per gap: "a \n b" ~ "a\nb".
     assert edit_similarity("a \n b", "a\nb") == 1.0
 
@@ -125,7 +128,8 @@ def test_pk_windowdiff_near_miss_beats_no_boundary() -> None:
 
 
 def test_pk_windowdiff_short_document() -> None:
-    # 2 words with one gap: N=2 <= k=2, no probe fits.
-    assert pk([SPACE], [PARA]) == 0.0
-    assert windowdiff([SPACE], [PARA]) == 0.0
-    assert pk([], []) == 0.0
+    # 2 words with one gap: N=2 <= k=2, no probe fits -> NaN (excluded from means),
+    # never 0.0, which would count a no-evidence doc as a perfect prediction.
+    assert math.isnan(pk([SPACE], [PARA]))
+    assert math.isnan(windowdiff([SPACE], [PARA]))
+    assert math.isnan(pk([], []))

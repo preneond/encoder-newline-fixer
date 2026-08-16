@@ -38,6 +38,14 @@ def test_classify_basic_separators():
         ("a  b", SPACE),
         ("a\n\n\n\nb", PARA),
         ("a \n\n b", PARA),
+        # Unicode/legacy line boundaries count as line breaks, not spaces.
+        ("a\rb", NEWLINE),
+        ("a\r\rb", PARA),
+        ("a\x85b", NEWLINE),
+        ("a b", NEWLINE),  # noqa: RUF001 (U+2028 LINE SEPARATOR is the point)
+        ("a b", PARA),  # noqa: RUF001 (U+2029 PARAGRAPH SEPARATOR is the point)
+        ("a\x0cb", NEWLINE),
+        ("a\r\n\r\nb", PARA),
     ],
 )
 def test_classify_separator_variants(text: str, expected_gap: int):

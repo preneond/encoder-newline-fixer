@@ -39,7 +39,7 @@ python = "./.venv"
 
 [dependency-groups]
 dev = [
-    "marimo>=0.23.16",
+    "marimo[mcp]>=0.23.16",
     "pandas>=3.0.5",
     "plotly>=6.9.0",
     "pytest>=9.1.1",

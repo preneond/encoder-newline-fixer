@@ -89,8 +89,19 @@ class CharBiLSTM(nn.Module):
         )
 
     def forward(self, ids: Tensor) -> Tensor:
-        """ids [B, L] of byte ids (0 = padding) -> per-byte gap logits [B, L, 4]."""
-        out, _ = self.lstm(self.embedding(ids))
+        """ids [B, L] of byte ids (0 = padding) -> per-byte gap logits [B, L, 4].
+
+        Sequences are packed so the backward LSTM direction never reads padding:
+        outputs at real positions are identical regardless of batch composition.
+        """
+        lengths = (ids != 0).sum(dim=1).clamp(min=1)
+        packed = nn.utils.rnn.pack_padded_sequence(
+            self.embedding(ids), lengths.cpu(), batch_first=True, enforce_sorted=False
+        )
+        out_packed, _ = self.lstm(packed)
+        out, _ = nn.utils.rnn.pad_packed_sequence(
+            out_packed, batch_first=True, total_length=ids.size(1)
+        )
         return self.head(out)
 
     def config(self) -> dict[str, int | float]:

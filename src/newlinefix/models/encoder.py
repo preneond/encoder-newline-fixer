@@ -7,6 +7,7 @@ truncated away by the 512-token limit fall back to SPACE for their gaps.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -71,7 +72,14 @@ class EncoderGapPredictor(GapPredictor):
         model = AutoModelForTokenClassification.from_pretrained(str(path))
         model.to(dev)
         model.eval()
-        return cls(tokenizer, model, dev)
+        predictor = cls(tokenizer, model, dev)
+        # Honor the windowing the checkpoint was trained with (mirrors ScratchGapPredictor).
+        config_path = Path(path) / "predictor_config.json"
+        if config_path.exists():
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            predictor.max_words = int(config.get("max_words", cls.max_words))
+            predictor.overlap = int(config.get("overlap", cls.overlap))
+        return predictor
 
     def predict_window(self, words: list[str]) -> list[int]:
         return self.predict_windows([words])[0]

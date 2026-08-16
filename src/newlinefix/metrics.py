@@ -9,16 +9,18 @@ paragraph-segment boundaries over the word sequence.
 from __future__ import annotations
 
 import difflib
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import numpy as np
 
 from newlinefix.gaps import (
     GAP_LABELS,
     GAP_STRINGS,
+    JOIN,
     NEWLINE,
     NUM_GAP_CLASSES,
     PARA,
+    GapText,
     gaps_to_text,
     text_to_gaps,
 )
@@ -112,8 +114,9 @@ def pk(true_labels: list[int], pred_labels: list[int]) -> float:
         Pk = (1 / (N - k)) * sum_{i=0}^{N-k-1} [same_ref(i, i+k) != same_hyp(i, i+k)]
 
     where N is the word count and k = max(2, round(mean true segment length / 2)).
-    Lower is better; 0.0 means every probe agrees. Returns 0.0 when N <= k
-    (document too short to place a probe).
+    Lower is better; 0.0 means every probe agrees. Returns NaN when N <= k (no
+    probe fits — the document carries no segmentation evidence and must be
+    excluded from averages rather than scored as perfect).
     """
     if len(true_labels) != len(pred_labels):
         raise ValueError("pk: label sequences must have equal length")
@@ -121,7 +124,7 @@ def pk(true_labels: list[int], pred_labels: list[int]) -> float:
     cum_p = _boundary_cumsum(pred_labels)
     k = _auto_k(cum_t)
     if len(cum_t) <= k:
-        return 0.0
+        return float("nan")
     # cum doubles as a segment id per word: equal cum values <=> same segment.
     same_t = cum_t[:-k] == cum_t[k:]
     same_p = cum_p[:-k] == cum_p[k:]
@@ -138,7 +141,7 @@ def windowdiff(true_labels: list[int], pred_labels: list[int]) -> float:
 
     where b(i, i+k) counts boundaries strictly between words i and i+k, N is
     the word count, and k = max(2, round(mean true segment length / 2)).
-    Lower is better. Returns 0.0 when N <= k.
+    Lower is better. Returns NaN when N <= k (see ``pk``).
     """
     if len(true_labels) != len(pred_labels):
         raise ValueError("windowdiff: label sequences must have equal length")
@@ -146,7 +149,7 @@ def windowdiff(true_labels: list[int], pred_labels: list[int]) -> float:
     cum_p = _boundary_cumsum(pred_labels)
     k = _auto_k(cum_t)
     if len(cum_t) <= k:
-        return 0.0
+        return float("nan")
     counts_t = cum_t[k:] - cum_t[:-k]
     counts_p = cum_p[k:] - cum_p[:-k]
     return float(np.mean(counts_t != counts_p))
@@ -167,21 +170,38 @@ def _levenshtein(a: str, b: str) -> int:
 _SEP_DIST = [[_levenshtein(a, b) for b in GAP_STRINGS] for a in GAP_STRINGS]
 
 
+def _boundary_gaps(gap_text: GapText) -> Iterator[int]:
+    """Gap class at every boundary between consecutive non-whitespace characters.
+
+    Intra-word boundaries are JOIN (empty separator); inter-word boundaries carry
+    the word gap. Two texts with identical non-whitespace character streams align
+    boundary-for-boundary regardless of how the words are segmented.
+    """
+    for i, word in enumerate(gap_text.words):
+        yield from (JOIN,) * (len(word) - 1)
+        if i < len(gap_text.gaps):
+            yield gap_text.gaps[i]
+
+
 def edit_similarity(pred_text: str, true_text: str) -> float:
     """Character-level similarity in [0, 1]: 1 - editdist / max(len).
 
-    Since prediction only rewrites whitespace, the word sequences normally
-    match; then the exact edit distance decomposes into a sum over aligned
-    gap pairs of separator edit distances (each separator is one of '', ' ',
-    '\\n', '\\n\\n'), with texts taken in canonical (normalized) form. If the
-    word sequences differ (e.g. a JOIN mistake merged two words), falls back
-    to ``difflib.SequenceMatcher.ratio``.
+    Prediction only rewrites whitespace, so the non-whitespace character streams
+    of the two canonical texts are identical (even when a JOIN mistake changed the
+    word segmentation). The edit distance then decomposes over aligned character
+    boundaries as a sum of separator edit distances (each separator is one of '',
+    ' ', '\\n', '\\n\\n'). This is a tight upper bound on the exact edit distance
+    (equal except in rare repeated-content cases where a cross-boundary shift wins).
+    ``difflib.SequenceMatcher`` (autojunk disabled) is the fallback for texts whose
+    character streams genuinely differ.
     """
     pred = text_to_gaps(pred_text)
     true = text_to_gaps(true_text)
-    if pred.words != true.words:
-        return difflib.SequenceMatcher(None, pred_text, true_text).ratio()
-    dist = sum(_SEP_DIST[p][t] for p, t in zip(pred.gaps, true.gaps, strict=True))
+    if "".join(pred.words) != "".join(true.words):
+        return difflib.SequenceMatcher(None, pred_text, true_text, autojunk=False).ratio()
+    dist = sum(
+        _SEP_DIST[p][t] for p, t in zip(_boundary_gaps(pred), _boundary_gaps(true), strict=True)
+    )
     denom = max(len(gaps_to_text(pred)), len(gaps_to_text(true)))
     if denom == 0:
         return 1.0

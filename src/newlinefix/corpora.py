@@ -15,7 +15,9 @@ cleaning is unit-testable offline.
 from __future__ import annotations
 
 import hashlib
+import html
 import re
+import sys
 from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING
 
@@ -33,8 +35,12 @@ _ACCEPTABLE_CHARS = frozenset(
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 \n.,;:!?'\"()-"
 )
 
-_DOLLAR_MATH_RE = re.compile(r"\$\$.*?\$\$", re.DOTALL)
-_BRACKET_MATH_RE = re.compile(r"\\\[.*?\\\]", re.DOTALL)
+# Math delimiters must pair within one paragraph ("(?!\n\n)"): an unpaired opener
+# must not swallow arbitrary prose up to an unrelated closer later in the document.
+_DOLLAR_MATH_RE = re.compile(r"\$\$(?:(?!\n\n).)*?\$\$", re.DOTALL)
+_BRACKET_MATH_RE = re.compile(r"\\\[(?:(?!\n\n).)*?\\\]", re.DOTALL)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^>\n]*>")
 
 # ---------------------------------------------------------------------------
 # Pure cleaning helpers (offline, unit-testable)
@@ -50,8 +56,12 @@ def remove_code_fences(text: str) -> str:
     lines: list[str] = []
     in_fence = False
     for line in text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            # A line that also CLOSES its fence (```x```) is dropped without
+            # toggling, otherwise it would flip state and eat the rest of the doc.
+            if "```" not in stripped[3:]:
+                in_fence = not in_fence
             continue
         if not in_fence:
             lines.append(line)
@@ -59,13 +69,21 @@ def remove_code_fences(text: str) -> str:
 
 
 def remove_display_math(text: str) -> str:
-    """Drop display-math blocks: ``$$...$$`` and ``\\[...\\]`` (arxiver uses the latter)."""
-    return _BRACKET_MATH_RE.sub("", _DOLLAR_MATH_RE.sub("", text))
+    """Drop display-math blocks: ``$$...$$`` and ``\\[...\\]`` (arxiver uses the latter).
+
+    Replaced by a space so the flanking words are not spliced into one token.
+    """
+    return _BRACKET_MATH_RE.sub(" ", _DOLLAR_MATH_RE.sub(" ", text))
+
+
+def remove_html(text: str) -> str:
+    """Decode entities and drop tags/comments (arxiver tables and inline spans)."""
+    return _HTML_TAG_RE.sub(" ", _HTML_COMMENT_RE.sub(" ", html.unescape(text)))
 
 
 def clean_markdown(text: str) -> str:
     """Strip non-prose structures from markdown; result still needs ``normalize``."""
-    return remove_display_math(remove_code_fences(text))
+    return remove_html(remove_display_math(remove_code_fences(text)))
 
 
 def acceptable_char_fraction(text: str) -> float:
@@ -160,6 +178,8 @@ def iter_wikitext_docs(max_docs: int, seed: int) -> Iterator[dict]:
     leading heading paragraph; the ``text`` field already separates paragraphs and
     section headings with newlines.
     """
+    if max_docs <= 0:
+        return
     dataset = _load_streaming("wikimedia/wikipedia", name="20231101.en")
     shuffled = dataset.shuffle(seed=seed, buffer_size=500)
     raw_docs = (build_wikipedia_doc(row["title"], row["text"]) for row in shuffled)
@@ -182,6 +202,13 @@ def _open_markdown_stream(seed: int) -> tuple[IterableDataset, str, str]:
             first = next(iter(dataset.take(1)))
             _ = first[field]
         except Exception as exc:  # gated repo, missing field, network failure, ...
+            # Loud: a silent fallback would swap half the training corpus between
+            # runs on a transient hub error.
+            print(
+                f"warning: markdown corpus '{path}' unavailable "
+                f"({type(exc).__name__}: {exc}); trying next candidate",
+                file=sys.stderr,
+            )
             errors.append(f"{path}: {type(exc).__name__}: {exc}")
             continue
         return dataset.shuffle(seed=seed, buffer_size=200), field, source
@@ -190,6 +217,8 @@ def _open_markdown_stream(seed: int) -> tuple[IterableDataset, str, str]:
 
 def iter_markdown_docs(max_docs: int, seed: int) -> Iterator[dict]:
     """Stream markdown documents (headings, bullets) as canonical text."""
+    if max_docs <= 0:
+        return
     dataset, field, source = _open_markdown_stream(seed)
     raw_docs = (clean_markdown(str(row[field])) for row in dataset)
     yield from _emit_canonical(raw_docs, source, max_docs)

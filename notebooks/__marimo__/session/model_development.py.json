@@ -1,0 +1,268 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.23.16",
+    "script_metadata_hash": null
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "fa87ac490b07b8891e64d42dbba6164f",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "85932010499a5a35451438cedf5c4bef",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h1 id=\"fixing-newlines-model-development-walkthrough\">Fixing newlines: model development walkthrough</h1>\n<span class=\"paragraph\">This notebook drives the full pipeline of the newline-fixing service \u2014\n<strong>data preparation \u2192 training \u2192 evaluation</strong> \u2014 and visualizes the results.</span>\n<span class=\"paragraph\">The task is framed as <strong>gap classification</strong>: the text is split into words, and a\nmodel predicts one of four separators between each consecutive pair \u2014\n<code>JOIN</code> (halves of one word), <code>SPACE</code>, <code>NEWLINE</code> (<code>\\n</code>), <code>PARA</code> (<code>\\n\\n</code>).\nReconstruction from words + gaps can only change whitespace, never words.</span>\n<span class=\"paragraph\">Each heavy step is gated behind a <strong>run button</strong> and shells out to the same\n<code>scripts/*.py</code> CLIs documented in <code>report.md</code>, so what you see here is exactly\nwhat a terminal run does. Cells render from artifacts on disk, so a notebook\nrestart picks up wherever the pipeline left off.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "5c528c133bff0bf1c8d21615217d1bc0",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "0f97c299b7ea4556fe81aa63a4de5509",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"1-data-preparation\">1 \u00b7 Data preparation</h2>\n<span class=\"paragraph\">Clean structured text is its own supervision: we record the true gap classes,\nthen destroy the newlines (and occasionally split words) to create inputs.\nSources: <strong>wikitext-103</strong> (prose + headings) and a <strong>markdown corpus</strong>\n(headings + bullet lists, like the README's arXiv example).</span>\n<span class=\"paragraph\">Small doc counts below give a quick demo corpus; raise them for the real run\n(the full run is also fine from a terminal \u2014 the button uses the same CLI).</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "84c9e5c80706f84320376440a4cba552",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "f7dc93bebc0737f3d6a44234ea1f589d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "228527355649e679d0e63cfbb77a776e",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "SFPL",
+      "code_hash": "f0ccb90de8e74b2ff2e0aae84c412d03",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "BYtC",
+      "code_hash": "d79add0702c4d46b8963db54038e36b7",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "RGSE",
+      "code_hash": "5c299e7ecc6b86969b68d076c1d29d42",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Kclp",
+      "code_hash": "7e4d4478d812b476f59d9bc16dd495f1",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "emfo",
+      "code_hash": "f6333bf11e8746b5b1565b18757c91ee",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"2-corruption-how-training-pairs-are-made\">2 \u00b7 Corruption: how training pairs are made</h2>\n<span class=\"paragraph\">Pick a document; left is the <strong>clean target</strong>, right is the <strong>corrupted input</strong>\nthe model sees (newlines destroyed, occasional spurious breaks and mid-word\nsplits). The true gap labels ride along, aligned to the corrupted words.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Hstk",
+      "code_hash": "f87e62f8bdf67dc91467fa51cb3ce440",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "nWHF",
+      "code_hash": "fc3e9d5c9f5c4551b10846c0d6d7df9f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "iLit",
+      "code_hash": "77b13b6ccd023553ef9f2da7a97b3931",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"3-training\">3 \u00b7 Training</h2>\n<span class=\"paragraph\">Two models learn the same gap-classification task:</span>\n<table>\n<thead>\n<tr>\n<th></th>\n<th><code>encoder</code> (served model)</th>\n<th><code>scratch</code> (comparison)</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n<td>Architecture</td>\n<td><code>distilroberta-base</code> token classifier</td>\n<td>byte-level BiLSTM (~3M params)</td>\n</tr>\n<tr>\n<td>Pretraining</td>\n<td>yes (82M params, fine-tuned)</td>\n<td>none \u2014 trained only on our data</td>\n</tr>\n</tbody>\n</table>\n<span class=\"paragraph\">Defaults below are a <strong>quick demo run</strong>; for the real training raise\nepochs/windows (or run the CLI from a terminal \u2014 same script, same flags).\nBoth scripts pick MPS automatically on Apple Silicon.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ZHCJ",
+      "code_hash": "8eae75bc5ab78f44e249ddc2f6a48109",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ROlb",
+      "code_hash": "8ff1a717ccf24e1c8d4fb58736503ba1",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "qnkX",
+      "code_hash": "b45f5af7ccacd065bce7da13c4b43e7f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "TqIu",
+      "code_hash": "5c339e14638cd17b8586c72fad9fd8ba",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Vxnm",
+      "code_hash": "5171928a8d8d115157973fe90ff6446d",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "DnEU",
+      "code_hash": "d1352f1eac0bb1799cd51cbcebfdc01f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ulZA",
+      "code_hash": "1d54e1e867d2ea72f9797356fad96007",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"4-evaluation\">4 \u00b7 Evaluation</h2>\n<span class=\"paragraph\">Held-out test docs are corrupted with a fixed seed, every model re-predicts all\ngaps, and we score: per-class F1, break detection, segmentation quality\n(Pk / WindowDiff, lower = better), text similarity, and throughput.\nBaselines (<code>majority</code>, <code>rules</code>) show what the learned models actually buy.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "ecfG",
+      "code_hash": "2be89011e47dd5d50906599420a875e3",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "Pvdt",
+      "code_hash": "61a370fa635f801f900f07a7cd6bc47f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "ZBYS",
+      "code_hash": "59e84da067c7f0738e91e98d361d92b7",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "aLJB",
+      "code_hash": "d183b6eabf841639c520f3d9440cc803",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "nHfw",
+      "code_hash": "1d98c295de657a42e3a1a1b519026f6f",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "xXTn",
+      "code_hash": "063656e260aa632e4e92727723254d35",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "AjVT",
+      "code_hash": "86950c6a31a2f3ddee3d398952d7a484",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "pHFh",
+      "code_hash": "10809f76efbff43a0c361ff6d0ad80cf",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "NCOB",
+      "code_hash": "994fe34a370512450eb565b40787612a",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "aqbW",
+      "code_hash": "1bf0c2c367ad9dc4ad10241d6b9d84f5",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"5-try-it\">5 \u00b7 Try it</h2>\n<span class=\"paragraph\">The exact broken example from the challenge README is pre-filled \u2014 paste\nanything else to see a model fix it live.</span></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "TRpd",
+      "code_hash": "daa7fa7d211d0f433836e1f2fff2f008",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "TXez",
+      "code_hash": "35f97f2b36c44533bf627946f6c93ceb",
+      "outputs": [],
+      "console": []
+    },
+    {
+      "id": "dNNg",
+      "code_hash": "ee8c80f80df2891d802c7d33e79e1872",
+      "outputs": [],
+      "console": []
+    }
+  ]
+}

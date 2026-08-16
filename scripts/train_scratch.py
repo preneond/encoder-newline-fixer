@@ -197,8 +197,10 @@ def main() -> None:
         for i in range(0, len(val_windows), args.batch_size)
     ]
 
-    # Keep the stitching overlap valid (even, < max_words) for small --max-words runs.
-    overlap = min(ScratchGapPredictor.overlap, 2 * (args.max_words // 4))
+    if args.max_words < 8:
+        raise SystemExit("--max-words must be >= 8 so windowed inference stays valid")
+    # Keep the stitching overlap valid (even, >= 2, < max_words) for small --max-words runs.
+    overlap = max(2, min(ScratchGapPredictor.overlap, 2 * (args.max_words // 4)))
     epoch_rng = random.Random(args.seed)
     log_steps: list[dict] = []
     log_epochs: list[dict] = []
