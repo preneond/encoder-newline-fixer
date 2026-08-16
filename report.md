@@ -123,11 +123,53 @@ every model.
 
 ## Results
 
-<!-- RESULTS_TABLE -->
+Held-out test split (120 documents, ~205k words, seed 13; corrupted inputs, canonical
+targets). Macro-F1 is over {JOIN, NEWLINE, PARA}; Pk/WindowDiff lower is better.
+
+| Model | Gap acc | Macro-F1 | Break-F1 | Pk | WinDiff | EditSim | Words/s | ms/doc |
+|---|---|---|---|---|---|---|---|---|
+| majority | 0.957 | 0.000 | 0.000 | 0.341 | 0.341 | 0.986 | ~10⁹ | 0.00 |
+| rules | 0.954 | 0.034 | 0.040 | 0.348 | 0.352 | 0.986 | ~10⁷ | 0.18 |
+| **encoder** | **0.979** | **0.789** | **0.748** | **0.249** | **0.328** | **0.993** | 13,802 | 138 |
+| scratch | 0.959 | 0.632 | 0.617 | 0.365 | 0.485 | 0.987 | 2,172 | 875 |
+
+Training budgets were deliberately small (single epoch, ~6 minutes each on an Apple
+M4 Max via MPS): encoder 8k windows, scratch 30k windows. Validation macro-F1 scaled
+0.53 → 0.76 when the encoder's data grew 2k → 8k windows, so there is clear headroom;
+the full corpus is ~260k windows.
+
+On the challenge's own example, the encoder reproduces the expected output almost
+exactly — heading isolated, paragraph break placed, `• bullet` on its own line, and
+`que\nries` repaired to `queries` (its one deviation: a blank line instead of a single
+newline after "ways:", the NEWLINE↔PARA confusion that dominates its residual errors).
+Full per-model outputs: `results/eval_results.md`.
 
 ## Conclusion
 
-<!-- CONCLUSION -->
+**Did we use an existing model? Yes — the winner is a fine-tune of one.** The served
+model is `distilroberta-base` (82M params, pretrained) fine-tuned with a 4-class
+token-classification head. It was compared against a from-scratch byte-level BiLSTM
+(2.4M params) and two non-neural baselines, all under the same protocol.
+
+**Fine-tuning a pretrained encoder worked best on every axis measured:**
+
+1. **Quality** — test macro-F1 **0.789 vs 0.632** for the from-scratch model
+   (break-F1 0.748 vs 0.617, Pk 0.249 vs 0.365), despite training on *4× less data*
+   (8k vs 30k windows). That gap is what pretrained language knowledge buys: the
+   encoder already knows "queries" is a word and where sentences break; the BiLSTM
+   has to learn English from 5MB of bytes.
+2. **Speed, surprisingly** — 13.8k vs 2.2k words/s. The 34×-larger transformer runs
+   one parallel pass per window, while the recurrent model steps byte-by-byte
+   (~1,200 sequential steps per window), which parallel hardware cannot amortize at
+   batch size 1.
+3. **The baselines justify the ML**: rules manage macro-F1 0.034, and the majority
+   baseline's 95.7% gap *accuracy* shows why accuracy is the wrong metric here —
+   the informative signals are per-class F1 and segmentation error.
+
+The from-scratch model is still a respectable result for 2.4M parameters and six
+minutes of training — but on this task, at this data scale, **transfer learning
+dominates training from scratch on quality, data-efficiency, and (at batch-1 GPU
+inference) even speed.** The encoder is therefore the model behind the service.
 
 ## Engineering notes
 
