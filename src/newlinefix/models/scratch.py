@@ -91,17 +91,27 @@ class CharBiLSTM(nn.Module):
     def forward(self, ids: Tensor) -> Tensor:
         """ids [B, L] of byte ids (0 = padding) -> per-byte gap logits [B, L, 4].
 
-        Sequences are packed so the backward LSTM direction never reads padding:
-        outputs at real positions are identical regardless of batch composition.
+        On CPU/CUDA, sequences are packed so the backward LSTM direction never
+        reads padding: outputs at real positions are identical regardless of batch
+        composition. MPS has no packed-sequence kernel (packing falls back to a
+        ~20x-slower path), so it runs the plain padded forward; there, training is
+        unaffected (padded positions are masked out of the loss) and serving is
+        unaffected (fix_text predicts unpadded single windows) — only *batched*
+        multi-length inference on MPS carries a marginal padding influence in the
+        backward direction.
         """
-        lengths = (ids != 0).sum(dim=1).clamp(min=1)
-        packed = nn.utils.rnn.pack_padded_sequence(
-            self.embedding(ids), lengths.cpu(), batch_first=True, enforce_sorted=False
-        )
-        out_packed, _ = self.lstm(packed)
-        out, _ = nn.utils.rnn.pad_packed_sequence(
-            out_packed, batch_first=True, total_length=ids.size(1)
-        )
+        emb = self.embedding(ids)
+        if ids.device.type == "mps":
+            out, _ = self.lstm(emb)
+        else:
+            lengths = (ids != 0).sum(dim=1).clamp(min=1)
+            packed = nn.utils.rnn.pack_padded_sequence(
+                emb, lengths.cpu(), batch_first=True, enforce_sorted=False
+            )
+            out_packed, _ = self.lstm(packed)
+            out, _ = nn.utils.rnn.pad_packed_sequence(
+                out_packed, batch_first=True, total_length=ids.size(1)
+            )
         return self.head(out)
 
     def config(self) -> dict[str, int | float]:
