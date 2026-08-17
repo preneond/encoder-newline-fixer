@@ -35,6 +35,10 @@ uv run python scripts/train_scratch.py --data data/docs --out artifacts/scratch 
 # 3. evaluate all models on the held-out test split
 uv run python scripts/evaluate.py --models all --out results
 
+# publish the trained model to the Hugging Face Hub (repo id then works as a
+# model source everywhere a local artifact dir does, incl. NEWLINEFIX_MODEL_DIR)
+uv run poe publish --repo-id <user>/newlinefix-encoder
+
 # HTTP API (POST /fix {"text": ...} -> fixed text; serves artifacts/encoder)
 uv run poe serve
 # ... or containerized (CPU-only torch; bakes the trained model into the image)
@@ -272,7 +276,7 @@ service.
 
 ## Engineering notes
 
-- **Quality gates**: 123 unit/property/service tests (`pytest`), `ruff` lint + format, `ty`
+- **Quality gates**: 125 unit/property/service tests (`pytest`), `ruff` lint + format, `ty`
   type checking. Round-trip and label-alignment invariants are property-tested; the
   windowed-stitching logic is tested against an index oracle across window sizes.
 - **Adversarial review**: before training, the codebase went through a 53-agent

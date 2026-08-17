@@ -60,6 +60,7 @@ class EncoderGapPredictor(GapPredictor):
 
     @classmethod
     def load(cls, path: str | Path, device: str | None = None) -> EncoderGapPredictor:
+        """Load from a local artifact directory or a Hugging Face Hub repo id."""
         dev = pick_device(device)
         # add_prefix_space is required by BPE tokenizers (RoBERTa family) for
         # pretokenized input; other tokenizers store-and-ignore the kwarg.
@@ -72,12 +73,30 @@ class EncoderGapPredictor(GapPredictor):
         model.eval()
         predictor = cls(tokenizer, model, dev)
         # Honor the windowing the checkpoint was trained with (mirrors ScratchGapPredictor).
-        config_path = Path(path) / "predictor_config.json"
-        if config_path.exists():
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-            predictor.max_words = int(config.get("max_words", cls.max_words))
-            predictor.overlap = int(config.get("overlap", cls.overlap))
+        config = cls._predictor_config(path)
+        predictor.max_words = int(config.get("max_words", cls.max_words))
+        predictor.overlap = int(config.get("overlap", cls.overlap))
         return predictor
+
+    @staticmethod
+    def _predictor_config(path: str | Path) -> dict:
+        """predictor_config.json from a local dir, or from the Hub for a repo id.
+
+        Missing config (e.g. a plain hub checkpoint published without one) falls
+        back to the class-default windowing rather than failing the load.
+        """
+        local = Path(path) / "predictor_config.json"
+        if local.exists():
+            return json.loads(local.read_text(encoding="utf-8"))
+        if not Path(path).exists():  # not local at all: treat as a Hub repo id
+            try:
+                from huggingface_hub import hf_hub_download
+
+                downloaded = hf_hub_download(repo_id=str(path), filename="predictor_config.json")
+                return json.loads(Path(downloaded).read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        return {}
 
     def predict_window(self, words: list[str]) -> list[int]:
         return self.predict_windows([words])[0]

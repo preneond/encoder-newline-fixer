@@ -43,7 +43,18 @@ uv run poe streamlit                           # interactive UI (uses artifacts/
 ```
 
 The API has one endpoint: `POST /fix` with `{"text": "..."}` returns the same words
-with fixed whitespace. Docker (bakes in `artifacts/encoder`, CPU-only torch):
+with fixed whitespace.
+
+Publish the trained model to the Hugging Face Hub (needs `huggingface-cli login`
+or `HF_TOKEN`); a published repo id then works everywhere a local artifact dir does —
+`EncoderGapPredictor.load`, `evaluate.py --encoder-dir/--extra`, and the API:
+
+```bash
+uv run poe publish --repo-id <user>/newlinefix-encoder   # uploads artifacts/encoder + model card
+NEWLINEFIX_MODEL_DIR=<user>/newlinefix-encoder uv run poe serve   # serve straight from the Hub
+```
+
+Docker (bakes in `artifacts/encoder`, CPU-only torch):
 
 ```bash
 docker build -t newlinefix . && docker run -p 8000:8000 newlinefix
@@ -65,7 +76,7 @@ Reproducing the full pipeline (data → training → evaluation) is documented i
 |---|---|
 | `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpora.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), HTTP service (`api.py`), models (`models/`) |
 | `scripts/` | CLIs: `prepare_data.py` (build corpus), `train_encoder.py` (fine-tune a pretrained encoder), `train_scratch.py` (byte-BiLSTM, optional distillation), `evaluate.py` (compare all models on the held-out test split) |
-| `tests/` | 123 unit/property/service tests (`uv run pytest`) |
+| `tests/` | 125 unit/property/service tests (`uv run pytest`) |
 | `ui/` | Minimal Streamlit UI: model picker, before/after view, latency readout |
 | `artifacts/` | Trained model checkpoints (`encoder` is the served model) |
 | `results/` | Evaluation reports: headline `eval_results.{json,md}`, exploration sweeps in `exploration_results.{json,md}` |
@@ -80,6 +91,9 @@ uv run poe lint        # ruff check
 uv run poe fix         # ruff check --fix + ruff format
 uv run poe typecheck   # ty check
 uv run poe test        # pytest
+uv run poe serve       # HTTP API on :8000
+uv run poe streamlit   # local UI
+uv run poe publish     # push artifacts/encoder to the HF Hub (--repo-id ...)
 ```
 
 CI (`.github/workflows/ci.yml`) runs `poe check` on every push.
