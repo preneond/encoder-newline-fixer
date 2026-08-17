@@ -45,14 +45,41 @@ uv run poe streamlit                           # interactive UI (uses artifacts/
 The API has one endpoint: `POST /fix` with `{"text": "..."}` returns the same words
 with fixed whitespace.
 
-Publish the trained model to the Hugging Face Hub (needs `huggingface-cli login`
-or `HF_TOKEN`); a published repo id then works everywhere a local artifact dir does —
-`EncoderGapPredictor.load`, `evaluate.py --encoder-dir/--extra`, and the API:
+### Publishing to the Hugging Face Hub, step by step
 
-```bash
-uv run poe publish --repo-id <user>/newlinefix-encoder   # uploads artifacts/encoder + model card
-NEWLINEFIX_MODEL_DIR=<user>/newlinefix-encoder uv run poe serve   # serve straight from the Hub
-```
+A published repo id works everywhere a local artifact dir does —
+`EncoderGapPredictor.load`, `evaluate.py --encoder-dir/--extra`, and the API.
+
+1. **Get a token** — on [huggingface.co](https://huggingface.co) → Settings →
+   Access Tokens → create a token with **write** permission.
+2. **Authenticate** (either way):
+
+   ```bash
+   uv run huggingface-cli login        # paste the token once; stored in ~/.cache/huggingface
+   # or, non-interactive (CI, docker):
+   export HF_TOKEN=hf_...
+   ```
+
+3. **Have a trained model** in `artifacts/encoder` (train it, or check the artifact
+   dir contains `model.safetensors` + `predictor_config.json`).
+4. **Publish** — creates the repo (private by default), uploads the artifact, and
+   generates a model card with the validation metrics:
+
+   ```bash
+   uv run poe publish --repo-id <user>/newlinefix-encoder
+   uv run poe publish --repo-id <user>/newlinefix-encoder --no-private   # public instead
+   ```
+
+5. **Verify** — the command prints the repo URL; the model card should show the
+   metrics table. Then serve straight from the Hub, no local model files needed:
+
+   ```bash
+   NEWLINEFIX_MODEL_DIR=<user>/newlinefix-encoder uv run poe serve
+   curl -X POST localhost:8000/fix -H 'Content-Type: application/json' -d '{"text": "que\nries"}'
+   ```
+
+Re-running `poe publish` pushes a new revision to the same repo (uploads are
+commits on the Hub, so the model is versioned for free).
 
 Docker (bakes in `artifacts/encoder`, CPU-only torch):
 
