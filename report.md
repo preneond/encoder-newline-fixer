@@ -38,7 +38,7 @@ uv run python scripts/evaluate.py --models all --out results
 
 # publish the trained model to the Hugging Face Hub (repo id then works as a
 # model source everywhere a local artifact dir does, incl. NEWLINEFIX_MODEL_DIR)
-uv run poe publish --repo-id preneond/newlinefix-encoder
+uv run poe publish-model --repo-id preneond/newlinefix-encoder
 
 # HTTP API (POST /fix {"text": ...} -> fixed text); --model picks any artifact
 # dir or HF Hub repo id, --list-models shows the servable local checkpoints

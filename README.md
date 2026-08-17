@@ -68,8 +68,8 @@ Published model: **[preneond/newlinefix-encoder](https://huggingface.co/preneond
    generates a model card with the validation metrics:
 
    ```bash
-   uv run poe publish --repo-id preneond/newlinefix-encoder
-   uv run poe publish --repo-id preneond/newlinefix-encoder --no-private   # public instead
+   uv run poe publish-model --repo-id preneond/newlinefix-encoder
+   uv run poe publish-model --repo-id preneond/newlinefix-encoder --no-private   # public instead
    ```
 
 5. **Verify** — the command prints the repo URL; the model card should show the
@@ -83,9 +83,9 @@ Published model: **[preneond/newlinefix-encoder](https://huggingface.co/preneond
    (In Docker/compose the same choice is made with the `NEWLINEFIX_MODEL_DIR` env
    var — the CLI flag is a front-end that sets it.)
 
-Re-running `poe publish` pushes a new revision to the same repo (uploads are
+Re-running `poe publish-model` pushes a new revision to the same repo (uploads are
 commits on the Hub, so the model is versioned for free). The generated corpus
-can be published the same way: `uv run poe publish-data` uploads
+can be published the same way: `uv run poe publish-dataset` uploads
 `data/docs/{train,val,test}.jsonl` with a dataset card (private by default —
 check the source-corpora licenses before making it public).
 
@@ -128,7 +128,8 @@ uv run poe typecheck   # ty check
 uv run poe test        # pytest
 uv run poe serve       # HTTP API on :8000
 uv run poe streamlit   # local UI
-uv run poe publish     # push artifacts/encoder to the HF Hub (--repo-id ...)
+uv run poe publish-model     # push artifacts/encoder to the HF Hub
+uv run poe publish-dataset   # push the generated corpus (private by default)
 ```
 
 CI (`.github/workflows/ci.yml`) runs `poe check` on every push.

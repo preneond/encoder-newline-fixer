@@ -6,7 +6,7 @@ redistribution — review that before ever flipping the repo public. The
 Wikipedia half is CC BY-SA 4.0. The generated dataset card records both.
 
 Usage:
-    uv run poe publish-data                     # -> preneond/newlinefix-corpus (private)
+    uv run poe publish-dataset                     # -> preneond/newlinefix-corpus (private)
 """
 
 import json

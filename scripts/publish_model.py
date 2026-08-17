@@ -9,7 +9,7 @@ so the service can be deployed without shipping model files.
 Requires a Hub token (huggingface-cli login, or HF_TOKEN in the environment).
 
 Usage:
-    uv run poe publish --repo-id <user>/newlinefix-encoder
+    uv run poe publish-model --repo-id <user>/newlinefix-encoder
 """
 
 import json
