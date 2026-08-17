@@ -19,13 +19,11 @@ words split mid-line (`que\nries` → `queries`).
 ## How to run
 
 ```bash
-# environment (Python 3.12, uv)
+# environment (Python 3.14, uv)
 uv sync
 
-# tests, lint, types
-uv run pytest
-uv run ruff check src tests scripts
-uv run ty check src tests scripts
+# tests, lint, types (poe check = lint + typecheck + test, same as CI)
+uv run poe check
 
 # 1. data: stream + clean corpora into canonical documents (train/val/test JSONL)
 uv run python scripts/prepare_data.py --out data/docs --wikitext-docs 12000 --markdown-docs 12000

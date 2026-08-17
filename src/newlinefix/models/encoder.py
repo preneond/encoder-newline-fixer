@@ -5,8 +5,6 @@ logits at the *last subtoken of word i* (the left word). Words whose subtokens w
 truncated away by the 512-token limit fall back to SPACE for their gaps.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import cast

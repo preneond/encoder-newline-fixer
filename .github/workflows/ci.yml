@@ -1,0 +1,20 @@
+name: CI
+
+on: push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    container: ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: /root/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: uv-${{ runner.os }}-
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Lint, typecheck, test
+        run: uv run poe check

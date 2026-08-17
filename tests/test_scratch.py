@@ -1,7 +1,5 @@
 """Tests for the from-scratch byte-level BiLSTM model and its training script."""
 
-from __future__ import annotations
-
 import json
 import subprocess
 import sys

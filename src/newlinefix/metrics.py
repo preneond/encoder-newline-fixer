@@ -6,8 +6,6 @@ outputs. Segmentation metrics (``pk``/``windowdiff``) treat PARA gaps as
 paragraph-segment boundaries over the word sequence.
 """
 
-from __future__ import annotations
-
 import difflib
 from collections.abc import Iterator, Sequence
 

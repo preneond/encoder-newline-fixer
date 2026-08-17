@@ -12,8 +12,6 @@ no hard wrapping. Acquisition (network) is separated from pure cleaning helpers 
 cleaning is unit-testable offline.
 """
 
-from __future__ import annotations
-
 import hashlib
 import html
 import re

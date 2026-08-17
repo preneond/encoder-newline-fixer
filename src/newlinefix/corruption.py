@@ -11,8 +11,6 @@ Two views are produced:
     end-to-end demos and service-level tests, never for training.
 """
 
-from __future__ import annotations
-
 import random
 from dataclasses import dataclass
 

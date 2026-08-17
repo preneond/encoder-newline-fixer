@@ -6,8 +6,6 @@ targets aligned with the student's gap order; the student adds a masked,
 temperature-scaled KL term to its usual hard-label cross-entropy.
 """
 
-from __future__ import annotations
-
 from pathlib import Path
 from typing import cast
 

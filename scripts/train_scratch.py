@@ -6,17 +6,17 @@ best checkpoint kept by macro-F1 over the structural classes {JOIN, NEWLINE,
 PARA}. Saves model.pt (state_dict) + config.json into --out.
 """
 
-from __future__ import annotations
-
-import argparse
 import json
 import math
 import random
 from pathlib import Path
 from typing import Any
 
+import click
 import numpy as np
 import torch
+from pydantic import BaseModel
+from rich.console import Console
 from torch import Tensor, nn
 
 from newlinefix.data import Window, load_training_windows
@@ -36,44 +36,32 @@ Batch = tuple[Tensor, Tensor, Tensor]
 IGNORE_INDEX = -100
 STRUCTURAL_CLASSES = (JOIN, NEWLINE, PARA)
 
+console = Console()
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--data", type=Path, default=Path("data/docs"), help="dir with train.jsonl and val.jsonl"
-    )
-    parser.add_argument("--out", type=Path, default=Path("artifacts/scratch"))
-    parser.add_argument("--max-words", type=int, default=150)
-    parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--warmup-frac", type=float, default=0.03)
-    parser.add_argument("--embed-size", type=int, default=64)
-    parser.add_argument("--hidden-size", type=int, default=256)
-    parser.add_argument("--layers", type=int, default=2)
-    parser.add_argument("--dropout", type=float, default=0.2)
-    parser.add_argument("--train-windows", type=int, default=None)
-    parser.add_argument("--val-windows", type=int, default=2000)
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", type=str, default="auto")
-    parser.add_argument("--log-every", type=int, default=100)
-    parser.add_argument(
-        "--checkpoint-every",
-        type=int,
-        default=500,
-        help="also save a serving checkpoint every N steps (0 = end only), "
-        "so an interrupted run still leaves a usable model",
-    )
-    parser.add_argument(
-        "--teacher",
-        type=Path,
-        default=None,
-        help="dir with a fine-tuned encoder (scripts/train_encoder.py output); "
-        "when set, adds a knowledge-distillation loss over its per-gap soft targets",
-    )
-    parser.add_argument("--distill-alpha", type=float, default=0.5, help="KD loss weight in [0,1]")
-    parser.add_argument("--distill-temp", type=float, default=2.0, help="KD softmax temperature")
-    return parser.parse_args()
+
+class TrainConfig(BaseModel):
+    """All knobs of one training run, as parsed from the CLI."""
+
+    data: Path
+    out: Path
+    max_words: int
+    epochs: int
+    batch_size: int
+    lr: float
+    warmup_frac: float
+    embed_size: int
+    hidden_size: int
+    layers: int
+    dropout: float
+    train_windows: int | None
+    val_windows: int
+    seed: int
+    device: str
+    log_every: int
+    checkpoint_every: int
+    teacher: Path | None
+    distill_alpha: float
+    distill_temp: float
 
 
 def collate(batch: list[Window]) -> Batch:
@@ -192,48 +180,94 @@ def evaluate(model: CharBiLSTM, batches: list[Batch], device: torch.device) -> d
     return prf_metrics(preds, labels)
 
 
-def main() -> None:
-    args = parse_args()
-    random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    device = resolve_device(args.device)
+@click.command(help=__doc__)
+@click.option(
+    "--data",
+    type=click.Path(path_type=Path),
+    default=Path("data/docs"),
+    show_default=True,
+    help="dir with train.jsonl and val.jsonl",
+)
+@click.option(
+    "--out", type=click.Path(path_type=Path), default=Path("artifacts/scratch"), show_default=True
+)
+@click.option("--max-words", type=int, default=150, show_default=True)
+@click.option("--epochs", type=int, default=3, show_default=True)
+@click.option("--batch-size", type=int, default=64, show_default=True)
+@click.option("--lr", type=float, default=1e-3, show_default=True)
+@click.option("--warmup-frac", type=float, default=0.03, show_default=True)
+@click.option("--embed-size", type=int, default=64, show_default=True)
+@click.option("--hidden-size", type=int, default=256, show_default=True)
+@click.option("--layers", type=int, default=2, show_default=True)
+@click.option("--dropout", type=float, default=0.2, show_default=True)
+@click.option("--train-windows", type=int, default=None)
+@click.option("--val-windows", type=int, default=2000, show_default=True)
+@click.option("--seed", type=int, default=42, show_default=True)
+@click.option("--device", default="auto", show_default=True)
+@click.option("--log-every", type=int, default=100, show_default=True)
+@click.option(
+    "--checkpoint-every",
+    type=int,
+    default=500,
+    show_default=True,
+    help="also save a serving checkpoint every N steps (0 = end only), "
+    "so an interrupted run still leaves a usable model",
+)
+@click.option(
+    "--teacher",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="dir with a fine-tuned encoder (scripts/train_encoder.py output); "
+    "when set, adds a knowledge-distillation loss over its per-gap soft targets",
+)
+@click.option(
+    "--distill-alpha", type=float, default=0.5, show_default=True, help="KD loss weight in [0,1]"
+)
+@click.option(
+    "--distill-temp", type=float, default=2.0, show_default=True, help="KD softmax temperature"
+)
+def main(**kwargs: Any) -> None:
+    cfg = TrainConfig(**kwargs)
+    random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
+    device = resolve_device(cfg.device)
 
     train_windows = load_training_windows(
-        args.data / "train.jsonl", args.max_words, args.seed, limit=args.train_windows
+        cfg.data / "train.jsonl", cfg.max_words, cfg.seed, limit=cfg.train_windows
     )
     val_windows = load_training_windows(
-        args.data / "val.jsonl", args.max_words, args.seed + 1, limit=args.val_windows
+        cfg.data / "val.jsonl", cfg.max_words, cfg.seed + 1, limit=cfg.val_windows
     )
     if not train_windows or not val_windows:
-        raise SystemExit(f"empty train or val windows loaded from {args.data}")
-    print(f"train windows: {len(train_windows)}  val: {len(val_windows)}  device: {device}")
+        raise SystemExit(f"empty train or val windows loaded from {cfg.data}")
+    console.print(f"train windows: {len(train_windows)}  val: {len(val_windows)}  device: {device}")
 
-    model = CharBiLSTM(args.embed_size, args.hidden_size, args.layers, args.dropout).to(device)
-    print(f"parameters: {sum(p.numel() for p in model.parameters()):,}")
+    model = CharBiLSTM(cfg.embed_size, cfg.hidden_size, cfg.layers, cfg.dropout).to(device)
+    console.print(f"parameters: {sum(p.numel() for p in model.parameters()):,}")
 
     weights = class_weights(train_windows).to(device)
     named = dict(zip(GAP_LABELS, [round(w, 3) for w in weights.tolist()], strict=True))
-    print(f"class weights: {named}")
+    console.print(f"class weights: {named}", markup=False)
     loss_fn = nn.CrossEntropyLoss(weight=weights, ignore_index=IGNORE_INDEX)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
 
     teacher: EncoderTeacher | None = None
     distill_extra: dict[str, Any] = {}
-    if args.teacher is not None:
-        teacher = EncoderTeacher(args.teacher, device)
+    if cfg.teacher is not None:
+        teacher = EncoderTeacher(cfg.teacher, device)
         distill_extra = {
-            "teacher": str(args.teacher),
-            "distill_alpha": args.distill_alpha,
-            "distill_temp": args.distill_temp,
+            "teacher": str(cfg.teacher),
+            "distill_alpha": cfg.distill_alpha,
+            "distill_temp": cfg.distill_temp,
         }
-        print(
-            f"distilling from {args.teacher} "
-            f"(alpha={args.distill_alpha}, temperature={args.distill_temp})"
+        console.print(
+            f"distilling from {cfg.teacher} "
+            f"(alpha={cfg.distill_alpha}, temperature={cfg.distill_temp})"
         )
 
-    steps_per_epoch = math.ceil(len(train_windows) / args.batch_size)
-    total_steps = max(1, args.epochs * steps_per_epoch)
-    warmup_steps = max(1, int(args.warmup_frac * total_steps))
+    steps_per_epoch = math.ceil(len(train_windows) / cfg.batch_size)
+    total_steps = max(1, cfg.epochs * steps_per_epoch)
+    warmup_steps = max(1, int(cfg.warmup_frac * total_steps))
 
     def lr_lambda(step: int) -> float:
         if step < warmup_steps:
@@ -244,15 +278,15 @@ def main() -> None:
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     val_batches = [
-        collate(val_windows[i : i + args.batch_size])
-        for i in range(0, len(val_windows), args.batch_size)
+        collate(val_windows[i : i + cfg.batch_size])
+        for i in range(0, len(val_windows), cfg.batch_size)
     ]
 
-    if args.max_words < 8:
+    if cfg.max_words < 8:
         raise SystemExit("--max-words must be >= 8 so windowed inference stays valid")
     # Keep the stitching overlap valid (even, >= 2, < max_words) for small --max-words runs.
-    overlap = max(2, min(ScratchGapPredictor.overlap, 2 * (args.max_words // 4)))
-    epoch_rng = random.Random(args.seed)
+    overlap = max(2, min(ScratchGapPredictor.overlap, 2 * (cfg.max_words // 4)))
+    epoch_rng = random.Random(cfg.seed)
     log_steps: list[dict] = []
     log_epochs: list[dict] = []
     best_f1 = -1.0
@@ -261,22 +295,22 @@ def main() -> None:
     best_epoch = 0
     step = 0
     model.train()
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(1, cfg.epochs + 1):
         order = list(range(len(train_windows)))
         epoch_rng.shuffle(order)
         running = 0.0
         since_log = 0
-        for start in range(0, len(order), args.batch_size):
-            batch = [train_windows[j] for j in order[start : start + args.batch_size]]
+        for start in range(0, len(order), cfg.batch_size):
+            batch = [train_windows[j] for j in order[start : start + cfg.batch_size]]
             ids, positions, labels = collate(batch)
             logits = gather_gap_logits(model(ids.to(device)), positions.to(device))
             loss = loss_fn(logits.reshape(-1, NUM_GAP_CLASSES), labels.reshape(-1).to(device))
             if teacher is not None:
                 t_logits, t_valid = teacher.gap_logits(batch, logits.size(1))
                 kd = distillation_loss(
-                    logits, t_logits, t_valid, labels.to(device), args.distill_temp
+                    logits, t_logits, t_valid, labels.to(device), cfg.distill_temp
                 )
-                loss = (1.0 - args.distill_alpha) * loss + args.distill_alpha * kd
+                loss = (1.0 - cfg.distill_alpha) * loss + cfg.distill_alpha * kd
             optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -291,34 +325,34 @@ def main() -> None:
                 )
             running += loss_value
             since_log += 1
-            if step % args.log_every == 0:
+            if step % cfg.log_every == 0:
                 lr_now = scheduler.get_last_lr()[0]
-                print(
+                console.print(
                     f"epoch {epoch} step {step}/{total_steps} "
                     f"loss {running / since_log:.4f} lr {lr_now:.2e}"
                 )
                 log_steps.append({"step": step, "loss": running / since_log, "lr": lr_now})
                 running = 0.0
                 since_log = 0
-            if args.checkpoint_every and step % args.checkpoint_every == 0:
+            if cfg.checkpoint_every and step % cfg.checkpoint_every == 0:
                 snapshot = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
                 save_artifacts(
-                    args.out,
+                    cfg.out,
                     model,
                     snapshot,
-                    args.max_words,
+                    cfg.max_words,
                     overlap,
                     {"mid_epoch_step": step, "epoch": epoch, **distill_extra},
                 )
-                write_training_log(args.out, log_steps, log_epochs)
+                write_training_log(cfg.out, log_steps, log_epochs)
         metrics = evaluate(model, val_batches, device)
         macro_f1 = float(metrics["macro_f1_structural"])
-        print(
+        console.print(
             f"epoch {epoch} val acc {metrics['accuracy']:.4f} "
             f"macro-F1(JOIN/NEWLINE/PARA) {macro_f1:.4f}"
         )
         for name, m in metrics["per_class"].items():
-            print(
+            console.print(
                 f"  {name:<8} P {m['precision']:.3f} R {m['recall']:.3f} "
                 f"F1 {m['f1']:.3f} n={m['support']}"
             )
@@ -330,7 +364,7 @@ def main() -> None:
                 **{f"f1_{name}": m["f1"] for name, m in metrics["per_class"].items()},
             }
         )
-        write_training_log(args.out, log_steps, log_epochs)
+        write_training_log(cfg.out, log_steps, log_epochs)
         if macro_f1 > best_f1:
             best_f1 = macro_f1
             best_epoch = epoch
@@ -339,14 +373,17 @@ def main() -> None:
 
     assert best_state is not None
     save_artifacts(
-        args.out,
+        cfg.out,
         model,
         best_state,
-        args.max_words,
+        cfg.max_words,
         overlap,
         {"best_epoch": best_epoch, "val_metrics": best_metrics, **distill_extra},
     )
-    print(f"saved best checkpoint (epoch {best_epoch}, macro-F1 {best_f1:.4f}) to {args.out}")
+    console.print(
+        f"[green]saved best checkpoint (epoch {best_epoch}, "
+        f"macro-F1 {best_f1:.4f}) to {cfg.out}[/green]"
+    )
 
 
 if __name__ == "__main__":

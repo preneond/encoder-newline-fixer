@@ -4,8 +4,6 @@ Documents are stored one JSON object per line: {"text": <canonical text>, "sourc
 Corpus acquisition lives in ``newlinefix.corpora``; this module is corpus-agnostic.
 """
 
-from __future__ import annotations
-
 import json
 import random
 from collections.abc import Iterable, Iterator

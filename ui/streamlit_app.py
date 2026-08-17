@@ -4,8 +4,6 @@ Run locally:  uv run streamlit run ui/streamlit_app.py
 Models are detected from their artifact directories; baselines are always available.
 """
 
-from __future__ import annotations
-
 import time
 from pathlib import Path
 

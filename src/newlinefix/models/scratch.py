@@ -6,8 +6,6 @@ words[i] and words[i+1] is classified from the BiLSTM output at the byte
 position of the space that separates them.
 """
 
-from __future__ import annotations
-
 import json
 from pathlib import Path
 

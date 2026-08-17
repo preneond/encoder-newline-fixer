@@ -34,9 +34,9 @@ experiments, and results: **[report.md](report.md)**.
 ## Quickstart
 
 ```bash
-uv sync                                        # environment (Python 3.12, uv)
-uv run pytest                                  # tests
-uv run streamlit run ui/streamlit_app.py       # interactive UI (uses artifacts/)
+uv sync                                        # environment (Python 3.14, uv)
+uv run poe test                                # tests
+uv run poe streamlit                           # interactive UI (uses artifacts/)
 ```
 
 Reproducing the full pipeline (data → training → evaluation) is documented in
@@ -58,7 +58,11 @@ Reproducing the full pipeline (data → training → evaluation) is documented i
 ## Quality gates
 
 ```bash
-uv run ruff check src tests scripts ui
-uv run ty check src tests scripts
-uv run pytest
+uv run poe check       # lint + typecheck + test (what CI runs)
+uv run poe lint        # ruff check
+uv run poe fix         # ruff check --fix + ruff format
+uv run poe typecheck   # ty check
+uv run poe test        # pytest
 ```
+
+CI (`.github/workflows/ci.yml`) runs `poe check` on every push.

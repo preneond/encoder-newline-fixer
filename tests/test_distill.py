@@ -1,7 +1,5 @@
 """Offline tests for the distillation loss (no models required)."""
 
-from __future__ import annotations
-
 import pytest
 import torch
 

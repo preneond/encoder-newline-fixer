@@ -8,13 +8,13 @@ Usage:
     uv run python scripts/prepare_data.py --out data/docs
 """
 
-from __future__ import annotations
-
-import argparse
 from collections import Counter
 from itertools import chain
 from pathlib import Path
 
+import click
+from rich.console import Console
+from rich.table import Table
 from tqdm import tqdm
 
 from newlinefix.corpora import iter_markdown_docs, iter_wikitext_docs, split_for_text
@@ -23,25 +23,16 @@ from newlinefix.gaps import NEWLINE, PARA, SPACE, text_to_gaps
 
 SPLITS = ("train", "val", "test")
 
-
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", type=Path, default=Path("data/docs"))
-    parser.add_argument("--wikitext-docs", type=int, default=12000)
-    parser.add_argument("--markdown-docs", type=int, default=12000)
-    parser.add_argument("--val-frac", type=float, default=0.01)
-    parser.add_argument("--test-frac", type=float, default=0.01)
-    parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
+console = Console()
 
 
-def print_stats(splits: dict[str, list[dict]]) -> None:
+def stats_table(splits: dict[str, list[dict]]) -> Table:
     """Per split and source: doc/word counts and gap-class distribution."""
-    header = (
-        f"{'split':<7}{'source':<16}{'docs':>7}{'words':>10}{'SPACE':>10}{'NEWLINE':>9}{'PARA':>8}"
-    )
-    print(header)
-    print("-" * len(header))
+    table = Table(title="Corpus statistics")
+    table.add_column("split")
+    table.add_column("source")
+    for column in ("docs", "words", "SPACE", "NEWLINE", "PARA"):
+        table.add_column(column, justify="right")
     for split_name in SPLITS:
         by_source: dict[str, list[str]] = {}
         for doc in splits[split_name]:
@@ -53,35 +44,48 @@ def print_stats(splits: dict[str, list[dict]]) -> None:
                 gap_text = text_to_gaps(text)
                 words += len(gap_text.words)
                 gap_counts.update(gap_text.gaps)
-            print(
-                f"{split_name:<7}{source:<16}{len(by_source[source]):>7}{words:>10}"
-                f"{gap_counts[SPACE]:>10}{gap_counts[NEWLINE]:>9}{gap_counts[PARA]:>8}"
+            table.add_row(
+                split_name,
+                source,
+                f"{len(by_source[source]):,}",
+                f"{words:,}",
+                f"{gap_counts[SPACE]:,}",
+                f"{gap_counts[NEWLINE]:,}",
+                f"{gap_counts[PARA]:,}",
             )
+    return table
 
 
-def main() -> None:
-    args = parse_args()
+@click.command(help=__doc__)
+@click.option(
+    "--out", type=click.Path(path_type=Path), default=Path("data/docs"), show_default=True
+)
+@click.option("--wikitext-docs", type=int, default=12000, show_default=True)
+@click.option("--markdown-docs", type=int, default=12000, show_default=True)
+@click.option("--val-frac", type=float, default=0.01, show_default=True)
+@click.option("--test-frac", type=float, default=0.01, show_default=True)
+@click.option("--seed", type=int, default=42, show_default=True)
+def main(
+    out: Path,
+    wikitext_docs: int,
+    markdown_docs: int,
+    val_frac: float,
+    test_frac: float,
+    seed: int,
+) -> None:
     splits: dict[str, list[dict]] = {name: [] for name in SPLITS}
     docs = chain(
-        tqdm(
-            iter_wikitext_docs(args.wikitext_docs, args.seed),
-            total=args.wikitext_docs,
-            desc="wikipedia",
-        ),
-        tqdm(
-            iter_markdown_docs(args.markdown_docs, args.seed),
-            total=args.markdown_docs,
-            desc="markdown",
-        ),
+        tqdm(iter_wikitext_docs(wikitext_docs, seed), total=wikitext_docs, desc="wikipedia"),
+        tqdm(iter_markdown_docs(markdown_docs, seed), total=markdown_docs, desc="markdown"),
     )
     for doc in docs:
-        splits[split_for_text(doc["text"], args.val_frac, args.test_frac)].append(doc)
+        splits[split_for_text(doc["text"], val_frac, test_frac)].append(doc)
 
     for split_name in SPLITS:
-        path = args.out / f"{split_name}.jsonl"
+        path = out / f"{split_name}.jsonl"
         count = write_documents(path, splits[split_name])
-        print(f"wrote {path}: {count} docs")
-    print_stats(splits)
+        console.print(f"wrote [bold]{path}[/]: {count:,} docs")
+    console.print(stats_table(splits))
 
 
 if __name__ == "__main__":

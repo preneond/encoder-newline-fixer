@@ -6,10 +6,13 @@ readme = "README.md"
 authors = [
     { name = "Ondrej Prenek", email = "ondra.prenek@gmail.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
+    "click>=8.2",
     "datasets>=5.0.1",
     "numpy>=2.5.2",
+    "pydantic>=2.11",
+    "rich>=14.0",
     "torch>=2.13.0",
     "tqdm>=4.70.0",
     "transformers>=5.15.0",
@@ -21,7 +24,7 @@ build-backend = "uv_build"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
@@ -35,8 +38,19 @@ python = "./.venv"
 
 [dependency-groups]
 dev = [
+    "poethepoet>=0.37",
     "pytest>=9.1.1",
     "ruff>=0.16.3",
     "streamlit>=1.61.1",
     "ty>=0.0.72",
 ]
+
+[tool.poe.tasks]
+lint = "ruff check src tests scripts ui"
+fix = ["_ruff_fix", "_ruff_format"]
+typecheck = "ty check src tests scripts"
+test = "pytest"
+check = ["lint", "typecheck", "test"]
+streamlit = "streamlit run ui/streamlit_app.py"
+_ruff_fix = "ruff check --fix src tests scripts ui"
+_ruff_format = "ruff format src tests scripts ui"

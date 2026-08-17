@@ -6,8 +6,6 @@ windows are stitched by trusting each window only on its central region, where
 the model has bidirectional context.
 """
 
-from __future__ import annotations
-
 from abc import ABC, abstractmethod
 
 from newlinefix.gaps import GapText, gaps_to_text, text_to_gaps

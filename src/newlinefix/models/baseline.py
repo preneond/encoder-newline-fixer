@@ -5,8 +5,6 @@ words, so windowing is unnecessary; ``max_words`` is set high enough that
 ``predict_gaps`` always takes the single-window path.
 """
 
-from __future__ import annotations
-
 import re
 
 from newlinefix.gaps import NEWLINE, PARA, SPACE

@@ -12,9 +12,6 @@ is NEVER re-parsed for comparison, because a JOIN prediction merges words and
 would break alignment.
 """
 
-from __future__ import annotations
-
-import argparse
 import json
 import math
 import random
@@ -22,7 +19,12 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
+import click
+from pydantic import BaseModel
+from rich.console import Console
+from rich.table import Table
 from tqdm import tqdm
 
 from newlinefix.corruption import CorruptionConfig, make_example, render_corrupted
@@ -65,6 +67,21 @@ WARMUP_WORDS = ["Warm", "up", "call", "so", "lazy", "init", "is", "not", "timed.
 # A doc example is (clean_text, input_words, true_labels).
 Example = tuple[str, list[str], list[int]]
 
+console = Console()
+console_err = Console(stderr=True)
+
+
+class EvalConfig(BaseModel):
+    """One evaluation run, as parsed from the CLI."""
+
+    data: str
+    models: str
+    encoder_dir: str
+    scratch_dir: str
+    limit: int
+    seed: int
+    out: str
+
 
 #: --extra KIND values mapped to the loader for that kind of artifact dir.
 LOADERS: dict[str, Callable[[str], GapPredictor]] = {
@@ -80,11 +97,11 @@ def load_trained(kind: str, artifact_dir: str) -> GapPredictor:
     return LOADERS[kind](artifact_dir)
 
 
-REGISTRY: dict[str, Callable[[argparse.Namespace], GapPredictor]] = {
-    "majority": lambda _args: AllSpaceBaseline(),
-    "rules": lambda _args: RuleBaseline(),
-    "encoder": lambda args: load_trained("encoder", args.encoder_dir),
-    "scratch": lambda args: load_trained("scratch", args.scratch_dir),
+REGISTRY: dict[str, Callable[[EvalConfig], GapPredictor]] = {
+    "majority": lambda _cfg: AllSpaceBaseline(),
+    "rules": lambda _cfg: RuleBaseline(),
+    "encoder": lambda cfg: load_trained("encoder", cfg.encoder_dir),
+    "scratch": lambda cfg: load_trained("scratch", cfg.scratch_dir),
 }
 
 
@@ -97,7 +114,7 @@ def register_extra(spec: str) -> str:
             f"bad --extra spec {spec!r}; expected NAME=KIND:DIR with KIND one of "
             + "|".join(LOADERS)
         )
-    REGISTRY[name] = lambda _args: load_trained(kind, directory)
+    REGISTRY[name] = lambda _cfg: load_trained(kind, directory)
     return name
 
 
@@ -161,21 +178,53 @@ def evaluate_model(name: str, predictor: GapPredictor, examples: list[Example]) 
     }
 
 
+def result_row(r: dict) -> list[str]:
+    return [
+        r["model"],
+        f"{r['gap_accuracy']:.4f}",
+        f"{r['macro_f1_join_newline_para']:.4f}",
+        f"{r['break']['f1']:.4f}",
+        f"{r['mean_pk']:.4f}",
+        f"{r['mean_windowdiff']:.4f}",
+        f"{r['mean_edit_similarity']:.4f}",
+        f"{r['exact_match_rate']:.3f}",
+        f"{r['words_per_sec']:,.0f}",
+        f"{r['mean_latency_ms']:.2f}",
+    ]
+
+
+RESULT_COLUMNS = (
+    "Model",
+    "Gap acc",
+    "Macro-F1*",
+    "Break-F1",
+    "Pk",
+    "WinDiff",
+    "EditSim",
+    "Exact",
+    "Words/s",
+    "ms/doc",
+)
+
+
 def format_table(results: list[dict]) -> str:
-    header = (
-        "| Model | Gap acc | Macro-F1* | Break-F1 | Pk | WinDiff | EditSim "
-        "| Exact | Words/s | ms/doc |"
-    )
-    sep = "|---|---|---|---|---|---|---|---|---|---|"
-    rows = [header, sep]
-    for r in results:
-        rows.append(
-            f"| {r['model']} | {r['gap_accuracy']:.4f} | {r['macro_f1_join_newline_para']:.4f} "
-            f"| {r['break']['f1']:.4f} | {r['mean_pk']:.4f} | {r['mean_windowdiff']:.4f} "
-            f"| {r['mean_edit_similarity']:.4f} | {r['exact_match_rate']:.3f} "
-            f"| {r['words_per_sec']:,.0f} | {r['mean_latency_ms']:.2f} |"
-        )
+    """Markdown table for eval_results.md."""
+    rows = [
+        "| " + " | ".join(RESULT_COLUMNS) + " |",
+        "|" + "---|" * len(RESULT_COLUMNS),
+    ]
+    rows += ["| " + " | ".join(result_row(r)) + " |" for r in results]
     return "\n".join(rows)
+
+
+def rich_table(results: list[dict], meta: dict) -> Table:
+    table = Table(title=f"{meta['n_docs']} docs, seed {meta['seed']} — {meta['data']}")
+    table.add_column(RESULT_COLUMNS[0])
+    for column in RESULT_COLUMNS[1:]:
+        table.add_column(column, justify="right")
+    for r in results:
+        table.add_row(*result_row(r))
+    return table
 
 
 def write_report(
@@ -208,70 +257,71 @@ def write_report(
     (out_dir / "eval_results.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data", default="data/docs/test.jsonl", help="test documents JSONL")
-    parser.add_argument(
-        "--models",
-        default="all",
-        help="'all' or comma-list of: " + ",".join(REGISTRY),
-    )
-    parser.add_argument("--encoder-dir", default="artifacts/encoder")
-    parser.add_argument("--scratch-dir", default="artifacts/scratch")
-    parser.add_argument(
-        "--extra",
-        action="append",
-        default=[],
-        metavar="NAME=KIND:DIR",
-        help="register an additional trained model from an artifact dir, e.g. "
-        "electra=encoder:artifacts/encoder-electra-small (repeatable)",
-    )
-    parser.add_argument("--limit", type=int, default=500, help="max documents to evaluate")
-    parser.add_argument("--seed", type=int, default=13)
-    parser.add_argument("--out", default="results", help="output directory for reports")
-    return parser.parse_args(argv)
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = parse_args(argv)
-    for spec in args.extra:
+@click.command(help=__doc__)
+@click.option(
+    "--data", default="data/docs/test.jsonl", show_default=True, help="test documents JSONL"
+)
+@click.option(
+    "--models",
+    default="all",
+    show_default=True,
+    help="'all' or comma-list of: majority,rules,encoder,scratch (plus any --extra names)",
+)
+@click.option("--encoder-dir", default="artifacts/encoder", show_default=True)
+@click.option("--scratch-dir", default="artifacts/scratch", show_default=True)
+@click.option(
+    "--extra",
+    multiple=True,
+    metavar="NAME=KIND:DIR",
+    help="register an additional trained model from an artifact dir, e.g. "
+    "electra=encoder:artifacts/encoder-electra-small (repeatable)",
+)
+@click.option("--limit", type=int, default=500, show_default=True, help="max documents to evaluate")
+@click.option("--seed", type=int, default=13, show_default=True)
+@click.option("--out", default="results", show_default=True, help="output directory for reports")
+def main(extra: tuple[str, ...], **kwargs: Any) -> None:
+    cfg = EvalConfig(**kwargs)
+    for spec in extra:
         register_extra(spec)
-    names = list(REGISTRY) if args.models == "all" else [s.strip() for s in args.models.split(",")]
+    names = list(REGISTRY) if cfg.models == "all" else [s.strip() for s in cfg.models.split(",")]
     unknown = [n for n in names if n not in REGISTRY]
     if unknown:
-        print(f"error: unknown models {unknown}; choose from {list(REGISTRY)}", file=sys.stderr)
-        return 2
+        console_err.print(
+            f"[red]error:[/red] unknown models {unknown}; choose from {list(REGISTRY)}"
+        )
+        sys.exit(2)
 
-    texts = list(read_documents(args.data))
+    texts = list(read_documents(cfg.data))
     if not texts:
-        print(f"error: no documents found in {args.data}", file=sys.stderr)
-        return 2
-    if args.limit < len(texts):
+        console_err.print(f"[red]error:[/red] no documents found in {cfg.data}")
+        sys.exit(2)
+    if cfg.limit < len(texts):
         # Splits are written source-grouped; a prefix would evaluate one source only.
-        texts = random.Random(args.seed).sample(texts, args.limit)
-    examples = build_examples(texts, args.seed, CorruptionConfig())
+        texts = random.Random(cfg.seed).sample(texts, cfg.limit)
+    examples = build_examples(texts, cfg.seed, CorruptionConfig())
 
     results: list[dict] = []
     qualitative: list[tuple[str, str]] = []
     for name in names:
         try:
-            predictor = REGISTRY[name](args)
+            predictor = REGISTRY[name](cfg)
         except Exception as exc:  # a missing artifact dir must never block the other models
-            print(f"warning: skipping model '{name}': {exc}", file=sys.stderr)
+            console_err.print(f"[yellow]warning:[/yellow] skipping model '{name}': {exc}")
             continue
         results.append(evaluate_model(name, predictor, examples))
         qualitative.append((name, fix_text(README_EXAMPLE, predictor)))
 
     if not results:
-        print("error: no models could be evaluated", file=sys.stderr)
-        return 1
+        console_err.print("[red]error:[/red] no models could be evaluated")
+        sys.exit(1)
 
-    meta = {"data": args.data, "seed": args.seed, "limit": args.limit, "n_docs": len(examples)}
-    write_report(Path(args.out), results, qualitative, meta)
-    print(format_table(results))
-    print(f"\nwrote {args.out}/eval_results.json and {args.out}/eval_results.md")
-    return 0
+    meta = {"data": cfg.data, "seed": cfg.seed, "limit": cfg.limit, "n_docs": len(examples)}
+    write_report(Path(cfg.out), results, qualitative, meta)
+    console.print(rich_table(results, meta))
+    console.print(
+        f"wrote [bold]{cfg.out}/eval_results.json[/] and [bold]{cfg.out}/eval_results.md[/]"
+    )
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()
