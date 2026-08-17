@@ -29,7 +29,9 @@ The task is framed as **4-class gap classification** between consecutive words
 the output words are guaranteed identical to the input. The served model is a
 fine-tuned `distilroberta-base` token classifier; it is compared against a
 from-scratch byte-level BiLSTM and two non-neural baselines. Full methodology,
-experiments, and results: **[report.md](report.md)** · interactive walkthrough:
+experiments, and results: **[report.md](report.md)** · **live demo:
+[huggingface.co/spaces/preneond/newlinefix](https://huggingface.co/spaces/preneond/newlinefix)**
+(the quantized model running in your browser) · interactive walkthrough:
 **[solution presentation](https://claude.ai/code/artifact/9bdefd09-0df2-4632-8a4b-ea48c5cd6a5c)**
 (also in this repo: [docs/presentation.html](docs/presentation.html)).
 
@@ -89,7 +91,8 @@ can be published the same way: `uv run poe publish-dataset` uploads
 `data/docs/{train,val,test}.jsonl` with a dataset card (private by default —
 check the source-corpora licenses before making it public).
 
-Docker (bakes in `artifacts/encoder`, CPU-only torch):
+Docker (CPU-only torch; the API downloads the published model on first boot,
+or serve a local checkpoint by mounting artifacts/ and setting NEWLINEFIX_MODEL_DIR):
 
 ```bash
 docker build -t newlinefix . && docker run -p 8000:8000 newlinefix
@@ -110,10 +113,11 @@ Reproducing the full pipeline (data → training → evaluation) is documented i
 | Path | What's there |
 |---|---|
 | `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpus.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), HTTP service (`api.py`), models (`models/`) |
-| `scripts/` | CLIs: `prepare_data.py` (build corpus), `train_encoder.py` (fine-tune a pretrained encoder), `train_scratch.py` (byte-BiLSTM, optional distillation), `evaluate.py` (compare all models on the held-out test split) |
-| `tests/` | 126 unit/property/service tests (`uv run pytest`) |
-| `ui/` | Minimal Streamlit UI: model picker, before/after view, latency readout |
-| `artifacts/` | Trained model checkpoints (`encoder` is the served model) |
+| `scripts/` | CLIs: `prepare_data.py`, `train_encoder.py`, `train_scratch.py`, `evaluate.py`, `serve.py`, `publish_model.py`, `publish_dataset.py`, `publish_space.py` |
+| `tests/` | 131 unit/property/service tests (`uv run pytest`) |
+| `ui/` | Streamlit UI (local model picker / thin API client under compose) |
+| `space/` | Static HF Space: in-browser inference via ONNX + transformers.js |
+| `artifacts/` | Trained checkpoints (gitignored; train locally, or serving falls back to the published Hub model) |
 | `results/` | Evaluation reports: headline `eval_results.{json,md}`, exploration sweeps in `exploration_results.{json,md}` |
 | `report.md` | Approach, decisions, experiments, and results |
 | `data/` | Generated corpus (gitignored; regenerate with `scripts/prepare_data.py`) |

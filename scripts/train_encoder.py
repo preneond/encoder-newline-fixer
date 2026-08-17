@@ -250,6 +250,7 @@ def main(
     best_macro = -1.0
     best_epoch = -1
     best_metrics: dict[str, float] = {}
+    best_state: dict[str, torch.Tensor] | None = None
     step = 0
     for epoch in range(1, cfg.epochs + 1):
         model.train()
@@ -307,9 +308,15 @@ def main(
             best_macro = metrics["macro_f1_structural"]
             best_epoch = epoch
             best_metrics = metrics
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
             save_checkpoint(model, tokenizer, cfg, metrics)
             console.print(f"  [green]new best; checkpoint saved to {cfg.out}[/green]")
 
+    # Later mid-epoch checkpoints may have overwritten the best epoch's save;
+    # restore the best weights and make them the final on-disk checkpoint.
+    if best_state is not None:
+        model.load_state_dict(best_state)
+        save_checkpoint(model, tokenizer, cfg, best_metrics)
     f1_str = " ".join(f"{name}={best_metrics[f'f1_{name}']:.3f}" for name in GAP_LABELS)
     console.print(
         f"[bold]BEST epoch={best_epoch} "

@@ -60,10 +60,17 @@ def main(
         raise typer.Exit()
 
     chosen = model or os.environ.get("NEWLINEFIX_MODEL_DIR") or default_model_source()
-    if not Path(chosen).exists() and "/" not in chosen:
-        raise SystemExit(
-            f"model {chosen!r} is neither a local directory nor a Hub repo id; "
-            f"available local artifacts: {available or 'none'}"
+    if not Path(chosen).exists():
+        if "/" not in chosen:
+            raise SystemExit(
+                f"model {chosen!r} is neither a local directory nor a Hub repo id; "
+                f"available local artifacts: {available or 'none'}"
+            )
+        # Could be a Hub repo id — or a typo'd local path. Say so; a bad id fails
+        # loudly at startup (the API loads the model in its lifespan hook).
+        console.print(
+            f"[yellow]{chosen!r} is not a local directory — treating it as a "
+            "Hugging Face Hub repo id[/yellow]"
         )
     console.print(f"serving model [bold]{chosen}[/] on http://{host}:{port}")
     if available:

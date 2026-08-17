@@ -16,6 +16,9 @@ words split mid-line (`que\nries` → `queries`).
   (published: [preneond/newlinefix-encoder](https://huggingface.co/preneond/newlinefix-encoder)).
   It is compared against a **from-scratch byte-level BiLSTM** (~2.4M params) and two
   non-neural baselines — see [Results](#results).
+- **Live demo:** [huggingface.co/spaces/preneond/newlinefix](https://huggingface.co/spaces/preneond/newlinefix)
+  — the quantized model running entirely in the browser (ONNX + transformers.js),
+  verified gap-for-gap identical to the served checkpoint on the example below.
 
 ## How to run
 
@@ -29,12 +32,13 @@ uv run poe check
 # 1. data: stream + clean corpora into canonical documents (train/val/test JSONL)
 uv run python scripts/prepare_data.py --out data/docs --wikitext-docs 12000 --markdown-docs 12000
 
-# 2. train the two models (auto-selects MPS/CUDA/CPU)
-uv run python scripts/train_encoder.py --data data/docs --out artifacts/encoder --epochs 2 --train-windows 80000
-uv run python scripts/train_scratch.py --data data/docs --out artifacts/scratch --epochs 3
+# 2. train the two models (auto-selects MPS/CUDA/CPU); these are the exact budgets
+#    behind the committed results — raise the windows/epochs for better quality
+uv run python scripts/train_encoder.py --data data/docs --out artifacts/encoder --epochs 1 --train-windows 8000
+uv run python scripts/train_scratch.py --data data/docs --out artifacts/scratch --epochs 1 --train-windows 30000
 
-# 3. evaluate all models on the held-out test split
-uv run python scripts/evaluate.py --models all --out results
+# 3. evaluate all models on the held-out test split (the committed protocol)
+uv run python scripts/evaluate.py --models all --limit 120 --seed 13 --out results
 
 # publish the trained model to the Hugging Face Hub (repo id then works as a
 # model source everywhere a local artifact dir does, incl. NEWLINEFIX_MODEL_DIR)
@@ -43,12 +47,13 @@ uv run poe publish-model --repo-id preneond/newlinefix-encoder
 # HTTP API (POST /fix {"text": ...} -> fixed text); --model picks any artifact
 # dir or HF Hub repo id, --list-models shows the servable local checkpoints
 uv run poe serve
-# ... or containerized (CPU-only torch; bakes the trained model into the image)
+# ... or containerized (CPU-only torch; downloads the published model on first boot)
 docker build -t newlinefix . && docker run -p 8000:8000 newlinefix
 # ... or the whole stack: API on :8000 plus the UI on :8501, talking to it over HTTP
 docker compose up
 
-# minimal UI
+# minimal UI (local); the deployed demo runs the model in-browser:
+# https://huggingface.co/spaces/preneond/newlinefix
 uv run poe streamlit
 ```
 
@@ -106,7 +111,7 @@ words mid-word (`JOIN` supervision).
 Both neural models read a window of words and classify every gap in it; long inputs
 are handled by overlapping sliding windows stitched on their central regions
 (`src/newlinefix/predict.py`). Training uses class-weighted cross-entropy
-(SPACE is ~94% of gaps; weights `clip(sqrt(N/4c), 0.25, 20)`), AdamW, warmup + decay,
+(SPACE is ~96% of gaps; weights `clip(sqrt(N/4c), 0.25, 20)`), AdamW, warmup + decay,
 best-checkpoint selection by validation macro-F1 over {JOIN, NEWLINE, PARA}, and
 periodic mid-epoch checkpoints so interrupted runs still leave a servable model.
 
@@ -131,7 +136,7 @@ every model.
 
 ## Results
 
-Held-out test split (120 documents, ~205k words, seed 13; corrupted inputs, canonical
+Held-out test split (120 documents, ~228k words, seed 13; corrupted inputs, canonical
 targets). Macro-F1 is over {JOIN, NEWLINE, PARA}; Pk/WindowDiff lower is better.
 
 | Model | Gap acc | Macro-F1 | Break-F1 | Pk | WinDiff | EditSim | Words/s | ms/doc |
@@ -146,8 +151,10 @@ The served encoder is the lr=1e-4 fine-tune selected by the learning-rate sweep 
 (single epoch, ~6–16 minutes each on an Apple M4 Max via MPS): encoder 8k windows,
 scratch 30k windows. Validation macro-F1 scaled 0.53 → 0.78 when the encoder's data
 grew 2k → 8k windows, so there is clear headroom; the full corpus is ~260k windows.
-(Words/s figures vary ±30% run-to-run with machine load; quality metrics are exactly
-reproducible via `--seed`.)
+(Words/s figures vary ±30% run-to-run with machine load. The corruption and splits
+are fully deterministic given `--seed`; retraining on different hardware reproduces
+quality to within noise rather than bit-for-bit — a reproducibility check on a
+second machine landed at test macro-F1 0.8136 vs the committed 0.8148.)
 
 On the challenge's own example, the encoder reproduces the expected output almost
 exactly — heading isolated, paragraph break placed, `• bullet` on its own line, and
@@ -278,18 +285,21 @@ service.
 
 ## Engineering notes
 
-- **Quality gates**: 125 unit/property/service tests (`pytest`), `ruff` lint + format, `ty`
-  type checking. Round-trip and label-alignment invariants are property-tested; the
+- **Quality gates**: 131 unit/property/service tests (`pytest`) — including tests of
+  the HTTP API itself (endpoint contract, validation errors, the words-preserved
+  guarantee exercised over HTTP, and an end-to-end run with a real encoder) —
+  plus `ruff` lint + format and `ty` type checking; CI runs the same `poe check`
+  on every push. Round-trip and label-alignment invariants are property-tested; the
   windowed-stitching logic is tested against an index oracle across window sizes.
-- **Adversarial review**: before training, the codebase went through a 53-agent
-  review — five specialized reviewers, every finding re-verified by three
-  independent skeptics. 15 confirmed findings (metric-validity bugs, corpus-cleaning
-  edge cases, a batch-composition dependence in the BiLSTM) were fixed and are
-  visible in the git history.
+- **Adversarial review**: the codebase went through repeated multi-reviewer passes
+  in which every raised finding had to survive independent re-verification before
+  being fixed. The confirmed findings (metric-validity bugs, corpus-cleaning edge
+  cases, a batch-composition dependence in the BiLSTM, a checkpoint-overwrite bug
+  in the trainer) were fixed and are visible in the git history.
 - **Failure modes & limitations**: word-merge errors (`inour` → `in our`) are out of
   scope for the gap framing (would need intra-word split points); NEWLINE vs PARA
   confusion is the dominant residual error class; corpus conventions (Wikipedia +
   arXiv) bias what "correct" structure means.
-- **What I'd do next**: train-step resume (optimizer-state checkpoints), ONNX/int8
-  export for faster CPU serving, a hard-negative corruption curriculum, and a
-  word-merge repair head.
+- **What I'd do next**: train-step resume (optimizer-state checkpoints), int8 ONNX
+  for the server path too (the in-browser demo already runs the quantized export),
+  a hard-negative corruption curriculum, and a word-merge repair head.

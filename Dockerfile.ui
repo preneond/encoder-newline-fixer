@@ -12,6 +12,8 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-install-project
 
+# README.md is the project's declared readme; uv_build needs it to install the package.
+COPY README.md ./
 COPY src ./src
 COPY ui ./ui
 RUN uv sync --locked

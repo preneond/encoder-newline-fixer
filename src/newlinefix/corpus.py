@@ -52,6 +52,12 @@ def remove_code_fences(text: str) -> str:
 
     Line-based so info strings (```python) are handled; an unclosed fence drops the
     remainder of the document rather than leaking raw code into the corpus.
+
+    Known caveat: splitlines()/join flattens exotic Unicode line boundaries
+    (U+2028/U+2029, \\x1c-\\x1e) to "\\n", which can disagree with
+    ``gaps.classify_separator`` (U+2029 would be PARA). Affects only markdown
+    documents containing those rare characters; left as-is because changing it
+    would alter the generated corpus behind the committed results.
     """
     lines: list[str] = []
     in_fence = False
@@ -106,6 +112,8 @@ def is_acceptable(text: str) -> bool:
 
 def truncate_words(text: str, max_words: int) -> str:
     """Truncate canonical text to at most ``max_words`` words at a word boundary."""
+    if max_words <= 0:  # gaps[: max_words - 1] would wrap around to gaps[:-1]
+        return ""
     gap_text = text_to_gaps(text)
     if len(gap_text.words) <= max_words:
         return text

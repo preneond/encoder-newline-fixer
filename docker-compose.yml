@@ -1,8 +1,9 @@
 # Full stack: the FastAPI service plus a Streamlit UI that talks to it over HTTP.
 #   docker compose up   # UI on http://localhost:8501, API on http://localhost:8000
 #
-# The API image bakes in artifacts/encoder, so train (or copy) the model before
-# building — see the Dockerfile header.
+# No model is baked into the API image: on first boot it downloads the published
+# checkpoint from the Hugging Face Hub (see the Dockerfile header), hence the
+# generous healthcheck start_period.
 
 services:
   api:
@@ -21,7 +22,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 300s
 
   ui:
     build:

@@ -9,8 +9,9 @@ results
 docs
 tests
 scripts
-artifacts/*
-!artifacts/encoder
+artifacts
 __pycache__
 *.py[cod]
 .DS_Store
+.env.local
+.env

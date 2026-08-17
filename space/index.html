@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newline Fixer</title>
+<style>
+  :root { --ink: #1f2430; --muted: #6b6e76; --accent: #2a78d6; --paper: #fbfaf7; --card: #ffffff; --line: #e7e4dc; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #e8e6e0; --muted: #9a9da6; --accent: #3987e5; --paper: #16181d; --card: #1d2026; --line: #2c2f37; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 40px 20px 80px; }
+  h1 { font-size: 34px; margin: 0 0 6px; }
+  h1 span { color: var(--accent); }
+  p.lede { color: var(--muted); margin: 0 0 24px; }
+  p.lede a { color: var(--accent); }
+  textarea, pre.out {
+    width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--card);
+    color: var(--ink); padding: 14px 16px; font: 14px/1.7 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  textarea { min-height: 170px; resize: vertical; }
+  pre.out { min-height: 60px; white-space: pre-wrap; overflow-x: auto; margin: 0; }
+  button {
+    margin: 14px 0; padding: 10px 22px; font: 600 15px/1 inherit; color: #fff;
+    background: var(--accent); border: 0; border-radius: 999px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+  #status { color: var(--muted); font-size: 13.5px; min-height: 1.4em; }
+  label { display: block; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 18px 0 6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Newline Fixer <span>↵</span></h1>
+  <p class="lede">Fixes newline placement in English text — paragraph breaks, line breaks before
+  bullets and headings, and words split mid-line. The model only rewrites whitespace: the output
+  words are guaranteed identical to the input. Runs <strong>entirely in your browser</strong>
+  (quantized ONNX via transformers.js) — no server. Model:
+  <a href="https://huggingface.co/preneond/newlinefix-encoder">preneond/newlinefix-encoder</a>.</p>
+
+  <label for="input">Broken input</label>
+  <textarea id="input">3.2.3 Applications of Attention
+ in our Model The Transformer uses multi-head attention in three different ways: • In "encoder-decoder attention" layers,
+ the que
+ries come from the previous decoder layer.[...]</textarea>
+  <button id="fix" disabled>Loading model…</button>
+  <div id="status">Downloading the quantized model (~78 MB, first visit only — it is cached).</div>
+
+  <label for="output">Fixed</label>
+  <pre class="out" id="output"></pre>
+</main>
+
+<script type="module">
+import { AutoTokenizer, AutoModelForTokenClassification, Tensor } from
+  "https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.4.0";
+
+const REPO = "preneond/newlinefix-encoder";
+const SEPARATORS = ["", " ", "\n", "\n\n"]; // JOIN, SPACE, NEWLINE, PARA (id2label order)
+const MAX_WORDS = 170; // single-window demo; the full service stitches sliding windows
+
+const statusEl = document.getElementById("status");
+const button = document.getElementById("fix");
+const inputEl = document.getElementById("input");
+const outputEl = document.getElementById("output");
+
+let tokenizer, model, clsId, sepId;
+
+async function load() {
+  tokenizer = await AutoTokenizer.from_pretrained(REPO);
+  model = await AutoModelForTokenClassification.from_pretrained(REPO, {
+    dtype: "q8",
+    progress_callback: (p) => {
+      if (p.status === "progress" && p.file && p.file.endsWith(".onnx")) {
+        statusEl.textContent = `Downloading model… ${Math.round(p.progress)}%`;
+      }
+    },
+  });
+  // Derive the special-token ids from a probe encoding: [CLS] ... [SEP].
+  const probe = tokenizer.encode("x");
+  clsId = probe[0];
+  sepId = probe[probe.length - 1];
+  button.disabled = false;
+  button.textContent = "Fix newlines";
+  statusEl.textContent = "Model ready — everything below runs locally in this tab.";
+}
+
+// Mirrors the Python serving path: each word is tokenized with a leading space
+// (add_prefix_space), gap i is classified at the LAST subtoken of word i, and
+// the original words are re-joined with the predicted separators.
+async function fixText(text) {
+  let words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { fixed: "", note: "" };
+  let note = "";
+  if (words.length > MAX_WORDS) {
+    words = words.slice(0, MAX_WORDS);
+    note = ` (demo cap: first ${MAX_WORDS} words)`;
+  }
+  const ids = [clsId];
+  const lastSubtoken = [];
+  for (const word of words) {
+    const pieces = tokenizer.encode(" " + word, { add_special_tokens: false });
+    ids.push(...pieces);
+    lastSubtoken.push(ids.length - 1);
+  }
+  ids.push(sepId);
+
+  const seq = ids.length;
+  const inputIds = new Tensor("int64", BigInt64Array.from(ids.map(BigInt)), [1, seq]);
+  const attention = new Tensor("int64", BigInt64Array.from(Array(seq).fill(1n)), [1, seq]);
+  const { logits } = await model({ input_ids: inputIds, attention_mask: attention });
+
+  const [, , numClasses] = logits.dims;
+  const data = logits.data;
+  const parts = [words[0]];
+  for (let gap = 0; gap < words.length - 1; gap++) {
+    const offset = lastSubtoken[gap] * numClasses;
+    let best = 0;
+    for (let c = 1; c < numClasses; c++) if (data[offset + c] > data[offset + best]) best = c;
+    parts.push(SEPARATORS[best], words[gap + 1]);
+  }
+  return { fixed: parts.join(""), note };
+}
+
+button.addEventListener("click", async () => {
+  button.disabled = true;
+  statusEl.textContent = "Fixing…";
+  try {
+    const start = performance.now();
+    const { fixed, note } = await fixText(inputEl.value);
+    const ms = Math.round(performance.now() - start);
+    outputEl.textContent = fixed;
+    statusEl.textContent = `${fixed.split(/\s+/).filter(Boolean).length} words in ${ms} ms, in-browser${note}.`;
+  } catch (err) {
+    statusEl.textContent = `Error: ${err}`;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+load().catch((err) => { statusEl.textContent = `Model failed to load: ${err}`; });
+</script>
+</body>
+</html>

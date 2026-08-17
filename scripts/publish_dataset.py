@@ -92,9 +92,9 @@ default**; review the source licenses before redistributing or making it public.
 
 def main(
     repo_id: Annotated[str, typer.Option(help="target Hub dataset repo")] = DEFAULT_DATASET_REPO,
-    data_dir: Annotated[
-        Path, typer.Option(help="directory with train/val/test.jsonl")
-    ] = Path("data/docs"),
+    data_dir: Annotated[Path, typer.Option(help="directory with train/val/test.jsonl")] = Path(
+        "data/docs"
+    ),
     private: Annotated[
         bool, typer.Option(help="create the repo as private (see licensing note)")
     ] = True,

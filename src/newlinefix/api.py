@@ -11,6 +11,8 @@ Run locally:  uv run poe serve  (scripts/serve.py picks the model, then runs uvi
 """
 
 import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -31,10 +33,21 @@ def default_model_source() -> str:
     return DEFAULT_HUB_MODEL
 
 
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Load the model at startup: a bad model source fails the boot loudly
+    instead of surfacing as HTTP 500s, and concurrent first requests can't
+    each trigger their own load. (Tests bypass this via dependency overrides.)
+    """
+    get_predictor()
+    yield
+
+
 app = FastAPI(
     title="Newline Fixer",
     description="Fixes newline placement in English text; output words are "
     "guaranteed identical to the input — only whitespace changes.",
+    lifespan=_lifespan,
 )
 
 
