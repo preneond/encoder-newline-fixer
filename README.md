@@ -50,6 +50,7 @@ with fixed whitespace.
 
 A published repo id works everywhere a local artifact dir does —
 `EncoderGapPredictor.load`, `evaluate.py --encoder-dir/--extra`, and the API.
+Published model: **[preneond/newlinefix-encoder](https://huggingface.co/preneond/newlinefix-encoder)**.
 
 1. **Get a token** — on [huggingface.co](https://huggingface.co) → Settings →
    Access Tokens → create a token with **write** permission.

@@ -12,8 +12,9 @@ words split mid-line (`que\nries` → `queries`).
 - Training data is **self-supervised**: clean structured text (Wikipedia + arXiv
   markdown) is its own label source; inputs are produced by programmatically
   destroying newlines and splitting words.
-- The served model is a **fine-tuned `distilroberta-base`** token classifier. It is
-  compared against a **from-scratch byte-level BiLSTM** (~2.4M params) and two
+- The served model is a **fine-tuned `distilroberta-base`** token classifier
+  (published: [preneond/newlinefix-encoder](https://huggingface.co/preneond/newlinefix-encoder)).
+  It is compared against a **from-scratch byte-level BiLSTM** (~2.4M params) and two
   non-neural baselines — see [Results](#results).
 
 ## How to run

@@ -18,3 +18,7 @@ artifacts/
 
 # Tooling scratch
 .playwright-mcp/
+
+# Local secrets (HF token for publishing)
+.env.local
+.env

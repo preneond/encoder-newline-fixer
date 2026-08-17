@@ -59,6 +59,9 @@ explicit = true
 [tool.uv.sources]
 torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
+[tool.poe]
+envfile = ".env.local"  # local secrets (HF_TOKEN); gitignored, absent in CI
+
 [tool.poe.tasks]
 lint = "ruff check src tests scripts ui"
 fix = ["_ruff_fix", "_ruff_format"]
@@ -66,6 +69,7 @@ typecheck = "ty check src tests scripts"
 test = "pytest"
 check = ["lint", "typecheck", "test"]
 publish = "python scripts/publish_model.py"
+publish-data = "python scripts/publish_dataset.py"
 serve = "python scripts/serve.py"
 streamlit = "streamlit run ui/streamlit_app.py"
 _ruff_fix = "ruff check --fix src tests scripts ui"

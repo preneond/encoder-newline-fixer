@@ -19,6 +19,8 @@ from typing import Annotated, Any
 import typer
 from rich.console import Console
 
+from newlinefix.api import DEFAULT_HUB_MODEL
+
 console = Console()
 
 
@@ -78,7 +80,7 @@ Macro-F1 is over the structural classes {{JOIN, NEWLINE, PARA}}.
 
 
 def main(
-    repo_id: Annotated[str, typer.Option(help="target Hub repo, e.g. <user>/newlinefix-encoder")],
+    repo_id: Annotated[str, typer.Option(help="target Hub repo")] = DEFAULT_HUB_MODEL,
     artifact_dir: Annotated[Path, typer.Option(help="trained encoder artifact to upload")] = Path(
         "artifacts/encoder"
     ),
