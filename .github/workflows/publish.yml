@@ -1,0 +1,44 @@
+name: Publish model
+
+# Manual publishing of the trained encoder to the Hugging Face Hub.
+#
+# The trained artifact is gitignored (and too large for git), so it is staged
+# as assets of a GitHub release once, from a machine that has it:
+#   gh release create model artifacts/encoder/* --title "trained encoder"
+# Then trigger this workflow (Actions -> Publish model -> Run workflow).
+# Requires the HF_TOKEN repository secret (a Hub token with write access).
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_id:
+        description: Target Hugging Face repo
+        default: preneond/newlinefix-encoder
+        required: true
+      release_tag:
+        description: GitHub release tag holding the trained artifact files
+        default: model
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download the trained artifact from the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts/encoder
+          gh release download "${{ inputs.release_tag }}" --dir artifacts/encoder
+          ls -la artifacts/encoder
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked --no-dev
+      - name: Publish to the Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        # scripts/... directly: --no-dev above skips poethepoet, the poe task's runner
+        run: uv run python scripts/publish_model.py --repo-id "${{ inputs.repo_id }}"
