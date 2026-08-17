@@ -67,15 +67,15 @@ A published repo id works everywhere a local artifact dir does —
    generates a model card with the validation metrics:
 
    ```bash
-   uv run poe publish --repo-id <user>/newlinefix-encoder
-   uv run poe publish --repo-id <user>/newlinefix-encoder --no-private   # public instead
+   uv run poe publish --repo-id preneond/newlinefix-encoder
+   uv run poe publish --repo-id preneond/newlinefix-encoder --no-private   # public instead
    ```
 
 5. **Verify** — the command prints the repo URL; the model card should show the
    metrics table. Then serve straight from the Hub, no local model files needed:
 
    ```bash
-   uv run poe serve --model <user>/newlinefix-encoder
+   uv run poe serve --model preneond/newlinefix-encoder
    curl -X POST localhost:8000/fix -H 'Content-Type: application/json' -d '{"text": "que\nries"}'
    ```
 
@@ -107,7 +107,7 @@ Reproducing the full pipeline (data → training → evaluation) is documented i
 |---|---|
 | `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpus.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), HTTP service (`api.py`), models (`models/`) |
 | `scripts/` | CLIs: `prepare_data.py` (build corpus), `train_encoder.py` (fine-tune a pretrained encoder), `train_scratch.py` (byte-BiLSTM, optional distillation), `evaluate.py` (compare all models on the held-out test split) |
-| `tests/` | 125 unit/property/service tests (`uv run pytest`) |
+| `tests/` | 126 unit/property/service tests (`uv run pytest`) |
 | `ui/` | Minimal Streamlit UI: model picker, before/after view, latency readout |
 | `artifacts/` | Trained model checkpoints (`encoder` is the served model) |
 | `results/` | Evaluation reports: headline `eval_results.{json,md}`, exploration sweeps in `exploration_results.{json,md}` |

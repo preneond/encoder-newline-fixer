@@ -19,19 +19,18 @@ import typer
 import uvicorn
 from rich.console import Console
 
+from newlinefix.api import DEFAULT_HUB_MODEL, DEFAULT_LOCAL_MODEL, default_model_source
+
 console = Console()
 
 ARTIFACTS = Path("artifacts")
-DEFAULT_MODEL = "artifacts/encoder"
 
 
 def local_models() -> list[str]:
     """Servable checkpoints under artifacts/ (dirs written by train_encoder.py)."""
     if not ARTIFACTS.is_dir():
         return []
-    return sorted(
-        str(d) for d in ARTIFACTS.iterdir() if (d / "predictor_config.json").is_file()
-    )
+    return sorted(str(d) for d in ARTIFACTS.iterdir() if (d / "predictor_config.json").is_file())
 
 
 def main(
@@ -40,7 +39,7 @@ def main(
         typer.Option(
             help="model to serve: a local artifact dir (see --list-models) or a "
             "Hugging Face Hub repo id; defaults to $NEWLINEFIX_MODEL_DIR, then "
-            + DEFAULT_MODEL
+            f"{DEFAULT_LOCAL_MODEL} if present, then {DEFAULT_HUB_MODEL} from the Hub"
         ),
     ] = None,
     host: str = "0.0.0.0",
@@ -60,7 +59,7 @@ def main(
             console.print("no local artifacts found — train one or use a HF Hub repo id")
         raise typer.Exit()
 
-    chosen = model or os.environ.get("NEWLINEFIX_MODEL_DIR") or DEFAULT_MODEL
+    chosen = model or os.environ.get("NEWLINEFIX_MODEL_DIR") or default_model_source()
     if not Path(chosen).exists() and "/" not in chosen:
         raise SystemExit(
             f"model {chosen!r} is neither a local directory nor a Hub repo id; "
