@@ -83,16 +83,10 @@ A published repo id works everywhere a local artifact dir does —
    var — the CLI flag is a front-end that sets it.)
 
 Re-running `poe publish` pushes a new revision to the same repo (uploads are
-commits on the Hub, so the model is versioned for free).
-
-There is also a manual CI path (`.github/workflows/publish.yml`, uses the
-`HF_TOKEN` repository secret). Since the artifact is gitignored, stage it once
-as GitHub release assets, then trigger the workflow:
-
-```bash
-gh release create model artifacts/encoder/* --title "trained encoder"
-gh workflow run "Publish model"        # or: Actions → Publish model → Run workflow
-```
+commits on the Hub, so the model is versioned for free). The generated corpus
+can be published the same way: `uv run poe publish-data` uploads
+`data/docs/{train,val,test}.jsonl` with a dataset card (private by default —
+check the source-corpora licenses before making it public).
 
 Docker (bakes in `artifacts/encoder`, CPU-only torch):
 
