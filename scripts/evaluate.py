@@ -19,9 +19,9 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Annotated
 
-import click
+import typer
 from pydantic import BaseModel
 from rich.console import Console
 from rich.table import Table
@@ -260,31 +260,39 @@ def write_report(
     (out_dir / "eval_results.md").write_text("\n".join(lines), encoding="utf-8")
 
 
-@click.command(help=__doc__)
-@click.option(
-    "--data", default="data/docs/test.jsonl", show_default=True, help="test documents JSONL"
-)
-@click.option(
-    "--models",
-    default="all",
-    show_default=True,
-    help="'all' or comma-list of: majority,rules,encoder,scratch (plus any --extra names)",
-)
-@click.option("--encoder-dir", default="artifacts/encoder", show_default=True)
-@click.option("--scratch-dir", default="artifacts/scratch", show_default=True)
-@click.option(
-    "--extra",
-    multiple=True,
-    metavar="NAME=KIND:DIR",
-    help="register an additional trained model from an artifact dir, e.g. "
-    "electra=encoder:artifacts/encoder-electra-small (repeatable)",
-)
-@click.option("--limit", type=int, default=500, show_default=True, help="max documents to evaluate")
-@click.option("--seed", type=int, default=13, show_default=True)
-@click.option("--out", default="results", show_default=True, help="output directory for reports")
-def main(extra: tuple[str, ...], **kwargs: Any) -> None:
-    cfg = EvalConfig(**kwargs)
-    for spec in extra:
+def main(
+    data: Annotated[str, typer.Option(help="test documents JSONL")] = "data/docs/test.jsonl",
+    models: Annotated[
+        str,
+        typer.Option(
+            help="'all' or comma-list of: majority,rules,encoder,scratch (plus any --extra names)"
+        ),
+    ] = "all",
+    encoder_dir: str = "artifacts/encoder",
+    scratch_dir: str = "artifacts/scratch",
+    extra: Annotated[
+        list[str] | None,
+        typer.Option(
+            metavar="NAME=KIND:DIR",
+            help="register an additional trained model from an artifact dir, e.g. "
+            "electra=encoder:artifacts/encoder-electra-small (repeatable)",
+        ),
+    ] = None,
+    limit: Annotated[int, typer.Option(help="max documents to evaluate")] = 500,
+    seed: int = 13,
+    out: Annotated[str, typer.Option(help="output directory for reports")] = "results",
+) -> None:
+    """Evaluate all newline-fixing models on the held-out test split."""
+    cfg = EvalConfig(
+        data=data,
+        models=models,
+        encoder_dir=encoder_dir,
+        scratch_dir=scratch_dir,
+        limit=limit,
+        seed=seed,
+        out=out,
+    )
+    for spec in extra or []:
         register_extra(spec)
     names = list(REGISTRY) if cfg.models == "all" else [s.strip() for s in cfg.models.split(",")]
     unknown = [n for n in names if n not in REGISTRY]
@@ -327,4 +335,4 @@ def main(extra: tuple[str, ...], **kwargs: Any) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

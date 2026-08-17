@@ -11,11 +11,11 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, cast
 
-import click
 import numpy as np
 import torch
+import typer
 from pydantic import BaseModel
 from rich.console import Console
 from torch.optim.lr_scheduler import LambdaLR
@@ -172,51 +172,61 @@ def save_checkpoint(
     (cfg.out / "predictor_config.json").write_text(json.dumps(config, indent=2) + "\n")
 
 
-@click.command(help=__doc__)
-@click.option(
-    "--data", type=click.Path(path_type=Path), default=Path("data/docs"), show_default=True
-)
-@click.option("--model-name", default="distilroberta-base", show_default=True)
-@click.option(
-    "--out", type=click.Path(path_type=Path), default=Path("artifacts/encoder"), show_default=True
-)
-@click.option("--max-words", type=int, default=180, show_default=True)
-@click.option("--epochs", type=int, default=2, show_default=True)
-@click.option("--batch-size", type=int, default=32, show_default=True)
-# Default from the lr sweep in report.md: {2e-5: 0.68, 5e-5: 0.76, 1e-4: 0.78, 2e-4: 0.77}
-# val macro-F1 at the 8k-window budget.
-@click.option("--lr", type=float, default=1e-4, show_default=True)
-@click.option("--warmup-frac", type=float, default=0.06, show_default=True)
-@click.option("--weight-decay", type=float, default=0.01, show_default=True)
-@click.option("--train-windows", type=int, default=None)
-@click.option("--val-windows", type=int, default=2000, show_default=True)
-@click.option("--seed", type=int, default=42, show_default=True)
-@click.option("--device", default=None, help="default: auto mps > cuda > cpu")
-@click.option("--log-every", type=int, default=50, show_default=True)
-@click.option(
-    "--checkpoint-every",
-    type=int,
-    default=300,
-    show_default=True,
-    help="also save a serving checkpoint every N steps (0 = epoch end only), "
-    "so an interrupted run still leaves a usable model",
-)
-def main(**kwargs: Any) -> None:
-    cfg = TrainConfig(**kwargs)
+def main(
+    data: Path = Path("data/docs"),
+    model_name: str = "distilroberta-base",
+    out: Path = Path("artifacts/encoder"),
+    max_words: int = 180,
+    epochs: int = 2,
+    batch_size: int = 32,
+    # Default from the lr sweep in report.md: {2e-5: 0.68, 5e-5: 0.76, 1e-4: 0.78, 2e-4: 0.77}
+    # val macro-F1 at the 8k-window budget.
+    lr: float = 1e-4,
+    warmup_frac: float = 0.06,
+    weight_decay: float = 0.01,
+    train_windows: int | None = None,
+    val_windows: int = 2000,
+    seed: int = 42,
+    device: Annotated[str | None, typer.Option(help="default: auto mps > cuda > cpu")] = None,
+    log_every: int = 50,
+    checkpoint_every: Annotated[
+        int,
+        typer.Option(
+            help="also save a serving checkpoint every N steps (0 = epoch end only), "
+            "so an interrupted run still leaves a usable model"
+        ),
+    ] = 300,
+) -> None:
+    """Fine-tune a pretrained encoder for token-gap classification."""
+    cfg = TrainConfig(
+        data=data,
+        model_name=model_name,
+        out=out,
+        max_words=max_words,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        warmup_frac=warmup_frac,
+        weight_decay=weight_decay,
+        train_windows=train_windows,
+        val_windows=val_windows,
+        seed=seed,
+        device=device,
+        log_every=log_every,
+        checkpoint_every=checkpoint_every,
+    )
     device = pick_device(cfg.device)
     torch.manual_seed(cfg.seed)
 
-    train_windows = load_training_windows(
+    train_set = load_training_windows(
         cfg.data / "train.jsonl", cfg.max_words, cfg.seed, limit=cfg.train_windows
     )
-    val_windows = load_training_windows(
+    val_set = load_training_windows(
         cfg.data / "val.jsonl", cfg.max_words, cfg.seed + 1, limit=cfg.val_windows
     )
-    if not train_windows or not val_windows:
+    if not train_set or not val_set:
         raise SystemExit(f"empty train or val windows loaded from {cfg.data}")
-    console.print(
-        f"train windows: {len(train_windows)}  val windows: {len(val_windows)}  device: {device}"
-    )
+    console.print(f"train windows: {len(train_set)}  val windows: {len(val_set)}  device: {device}")
 
     tokenizer = cast(
         PreTrainedTokenizerBase,
@@ -230,7 +240,7 @@ def main(**kwargs: Any) -> None:
     )
     model.to(device)
 
-    weights = class_weights(train_windows).to(device)
+    weights = class_weights(train_set).to(device)
     console.print(f"class weights: {[round(float(w), 3) for w in weights]}", markup=False)
     loss_fn = torch.nn.CrossEntropyLoss(ignore_index=-100, weight=weights)
 
@@ -252,7 +262,7 @@ def main(**kwargs: Any) -> None:
         ],
         lr=cfg.lr,
     )
-    steps_per_epoch = math.ceil(len(train_windows) / cfg.batch_size)
+    steps_per_epoch = math.ceil(len(train_set) / cfg.batch_size)
     total_steps = steps_per_epoch * cfg.epochs
     warmup_steps = max(1, int(total_steps * cfg.warmup_frac))
 
@@ -273,13 +283,13 @@ def main(**kwargs: Any) -> None:
     step = 0
     for epoch in range(1, cfg.epochs + 1):
         model.train()
-        order = list(range(len(train_windows)))
+        order = list(range(len(train_set)))
         rng.shuffle(order)
         running_loss = 0.0
         running_n = 0
         pbar = tqdm(range(0, len(order), cfg.batch_size), desc=f"epoch {epoch}/{cfg.epochs}")
         for batch_start in pbar:
-            batch = [train_windows[i] for i in order[batch_start : batch_start + cfg.batch_size]]
+            batch = [train_set[i] for i in order[batch_start : batch_start + cfg.batch_size]]
             enc, labels = encode_batch(tokenizer, batch)
             logits = model(**enc.to(device)).logits
             loss = loss_fn(logits.view(-1, NUM_GAP_CLASSES), labels.view(-1).to(device))
@@ -315,7 +325,7 @@ def main(**kwargs: Any) -> None:
                 save_checkpoint(model, tokenizer, cfg, {"mid_epoch_step": float(step)})
                 write_training_log(cfg.out, log_steps, log_epochs)
 
-        metrics = evaluate(model, tokenizer, val_windows, cfg.batch_size, device)
+        metrics = evaluate(model, tokenizer, val_set, cfg.batch_size, device)
         log_epochs.append({"epoch": epoch, **metrics})
         write_training_log(cfg.out, log_steps, log_epochs)
         f1_str = " ".join(f"{name}={metrics[f'f1_{name}']:.3f}" for name in GAP_LABELS)
@@ -338,4 +348,4 @@ def main(**kwargs: Any) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

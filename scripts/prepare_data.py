@@ -12,7 +12,7 @@ from collections import Counter
 from itertools import chain
 from pathlib import Path
 
-import click
+import typer
 from rich.console import Console
 from rich.table import Table
 from tqdm import tqdm
@@ -56,23 +56,15 @@ def stats_table(splits: dict[str, list[dict]]) -> Table:
     return table
 
 
-@click.command(help=__doc__)
-@click.option(
-    "--out", type=click.Path(path_type=Path), default=Path("data/docs"), show_default=True
-)
-@click.option("--wikitext-docs", type=int, default=12000, show_default=True)
-@click.option("--markdown-docs", type=int, default=12000, show_default=True)
-@click.option("--val-frac", type=float, default=0.01, show_default=True)
-@click.option("--test-frac", type=float, default=0.01, show_default=True)
-@click.option("--seed", type=int, default=42, show_default=True)
 def main(
-    out: Path,
-    wikitext_docs: int,
-    markdown_docs: int,
-    val_frac: float,
-    test_frac: float,
-    seed: int,
+    out: Path = Path("data/docs"),
+    wikitext_docs: int = 12000,
+    markdown_docs: int = 12000,
+    val_frac: float = 0.01,
+    test_frac: float = 0.01,
+    seed: int = 42,
 ) -> None:
+    """Stream, clean, and split the corpora into canonical train/val/test JSONL."""
     splits: dict[str, list[dict]] = {name: [] for name in SPLITS}
     docs = chain(
         tqdm(iter_wikitext_docs(wikitext_docs, seed), total=wikitext_docs, desc="wikipedia"),
@@ -89,4 +81,4 @@ def main(
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)

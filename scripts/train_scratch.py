@@ -10,11 +10,11 @@ import json
 import math
 import random
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-import click
 import numpy as np
 import torch
+import typer
 from pydantic import BaseModel
 from rich.console import Console
 from torch import Tensor, nn
@@ -180,72 +180,83 @@ def evaluate(model: CharBiLSTM, batches: list[Batch], device: torch.device) -> d
     return prf_metrics(preds, labels)
 
 
-@click.command(help=__doc__)
-@click.option(
-    "--data",
-    type=click.Path(path_type=Path),
-    default=Path("data/docs"),
-    show_default=True,
-    help="dir with train.jsonl and val.jsonl",
-)
-@click.option(
-    "--out", type=click.Path(path_type=Path), default=Path("artifacts/scratch"), show_default=True
-)
-@click.option("--max-words", type=int, default=150, show_default=True)
-@click.option("--epochs", type=int, default=3, show_default=True)
-@click.option("--batch-size", type=int, default=64, show_default=True)
-@click.option("--lr", type=float, default=1e-3, show_default=True)
-@click.option("--warmup-frac", type=float, default=0.03, show_default=True)
-@click.option("--embed-size", type=int, default=64, show_default=True)
-@click.option("--hidden-size", type=int, default=256, show_default=True)
-@click.option("--layers", type=int, default=2, show_default=True)
-@click.option("--dropout", type=float, default=0.2, show_default=True)
-@click.option("--train-windows", type=int, default=None)
-@click.option("--val-windows", type=int, default=2000, show_default=True)
-@click.option("--seed", type=int, default=42, show_default=True)
-@click.option("--device", default="auto", show_default=True)
-@click.option("--log-every", type=int, default=100, show_default=True)
-@click.option(
-    "--checkpoint-every",
-    type=int,
-    default=500,
-    show_default=True,
-    help="also save a serving checkpoint every N steps (0 = end only), "
-    "so an interrupted run still leaves a usable model",
-)
-@click.option(
-    "--teacher",
-    type=click.Path(path_type=Path),
-    default=None,
-    help="dir with a fine-tuned encoder (scripts/train_encoder.py output); "
-    "when set, adds a knowledge-distillation loss over its per-gap soft targets",
-)
-@click.option(
-    "--distill-alpha", type=float, default=0.5, show_default=True, help="KD loss weight in [0,1]"
-)
-@click.option(
-    "--distill-temp", type=float, default=2.0, show_default=True, help="KD softmax temperature"
-)
-def main(**kwargs: Any) -> None:
-    cfg = TrainConfig(**kwargs)
+def main(
+    data: Annotated[Path, typer.Option(help="dir with train.jsonl and val.jsonl")] = Path(
+        "data/docs"
+    ),
+    out: Path = Path("artifacts/scratch"),
+    max_words: int = 150,
+    epochs: int = 3,
+    batch_size: int = 64,
+    lr: float = 1e-3,
+    warmup_frac: float = 0.03,
+    embed_size: int = 64,
+    hidden_size: int = 256,
+    layers: int = 2,
+    dropout: float = 0.2,
+    train_windows: int | None = None,
+    val_windows: int = 2000,
+    seed: int = 42,
+    device: str = "auto",
+    log_every: int = 100,
+    checkpoint_every: Annotated[
+        int,
+        typer.Option(
+            help="also save a serving checkpoint every N steps (0 = end only), "
+            "so an interrupted run still leaves a usable model"
+        ),
+    ] = 500,
+    teacher: Annotated[
+        Path | None,
+        typer.Option(
+            help="dir with a fine-tuned encoder (scripts/train_encoder.py output); "
+            "when set, adds a knowledge-distillation loss over its per-gap soft targets"
+        ),
+    ] = None,
+    distill_alpha: Annotated[float, typer.Option(help="KD loss weight in [0,1]")] = 0.5,
+    distill_temp: Annotated[float, typer.Option(help="KD softmax temperature")] = 2.0,
+) -> None:
+    """Train the from-scratch byte-level BiLSTM gap classifier."""
+    cfg = TrainConfig(
+        data=data,
+        out=out,
+        max_words=max_words,
+        epochs=epochs,
+        batch_size=batch_size,
+        lr=lr,
+        warmup_frac=warmup_frac,
+        embed_size=embed_size,
+        hidden_size=hidden_size,
+        layers=layers,
+        dropout=dropout,
+        train_windows=train_windows,
+        val_windows=val_windows,
+        seed=seed,
+        device=device,
+        log_every=log_every,
+        checkpoint_every=checkpoint_every,
+        teacher=teacher,
+        distill_alpha=distill_alpha,
+        distill_temp=distill_temp,
+    )
     random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
-    device = resolve_device(cfg.device)
+    torch_device = resolve_device(cfg.device)
 
-    train_windows = load_training_windows(
+    train_set = load_training_windows(
         cfg.data / "train.jsonl", cfg.max_words, cfg.seed, limit=cfg.train_windows
     )
-    val_windows = load_training_windows(
+    val_set = load_training_windows(
         cfg.data / "val.jsonl", cfg.max_words, cfg.seed + 1, limit=cfg.val_windows
     )
-    if not train_windows or not val_windows:
+    if not train_set or not val_set:
         raise SystemExit(f"empty train or val windows loaded from {cfg.data}")
-    console.print(f"train windows: {len(train_windows)}  val: {len(val_windows)}  device: {device}")
+    console.print(f"train windows: {len(train_set)}  val: {len(val_set)}  device: {torch_device}")
 
-    model = CharBiLSTM(cfg.embed_size, cfg.hidden_size, cfg.layers, cfg.dropout).to(device)
+    model = CharBiLSTM(cfg.embed_size, cfg.hidden_size, cfg.layers, cfg.dropout).to(torch_device)
     console.print(f"parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    weights = class_weights(train_windows).to(device)
+    weights = class_weights(train_set).to(torch_device)
     named = dict(zip(GAP_LABELS, [round(w, 3) for w in weights.tolist()], strict=True))
     console.print(f"class weights: {named}", markup=False)
     loss_fn = nn.CrossEntropyLoss(weight=weights, ignore_index=IGNORE_INDEX)
@@ -254,7 +265,7 @@ def main(**kwargs: Any) -> None:
     teacher: EncoderTeacher | None = None
     distill_extra: dict[str, Any] = {}
     if cfg.teacher is not None:
-        teacher = EncoderTeacher(cfg.teacher, device)
+        teacher = EncoderTeacher(cfg.teacher, torch_device)
         distill_extra = {
             "teacher": str(cfg.teacher),
             "distill_alpha": cfg.distill_alpha,
@@ -265,7 +276,7 @@ def main(**kwargs: Any) -> None:
             f"(alpha={cfg.distill_alpha}, temperature={cfg.distill_temp})"
         )
 
-    steps_per_epoch = math.ceil(len(train_windows) / cfg.batch_size)
+    steps_per_epoch = math.ceil(len(train_set) / cfg.batch_size)
     total_steps = max(1, cfg.epochs * steps_per_epoch)
     warmup_steps = max(1, int(cfg.warmup_frac * total_steps))
 
@@ -279,8 +290,7 @@ def main(**kwargs: Any) -> None:
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     val_batches = [
-        collate(val_windows[i : i + cfg.batch_size])
-        for i in range(0, len(val_windows), cfg.batch_size)
+        collate(val_set[i : i + cfg.batch_size]) for i in range(0, len(val_set), cfg.batch_size)
     ]
 
     if cfg.max_words < 8:
@@ -297,19 +307,19 @@ def main(**kwargs: Any) -> None:
     step = 0
     model.train()
     for epoch in range(1, cfg.epochs + 1):
-        order = list(range(len(train_windows)))
+        order = list(range(len(train_set)))
         epoch_rng.shuffle(order)
         running = 0.0
         since_log = 0
         for start in range(0, len(order), cfg.batch_size):
-            batch = [train_windows[j] for j in order[start : start + cfg.batch_size]]
+            batch = [train_set[j] for j in order[start : start + cfg.batch_size]]
             ids, positions, labels = collate(batch)
-            logits = gather_gap_logits(model(ids.to(device)), positions.to(device))
-            loss = loss_fn(logits.reshape(-1, NUM_GAP_CLASSES), labels.reshape(-1).to(device))
+            logits = gather_gap_logits(model(ids.to(torch_device)), positions.to(torch_device))
+            loss = loss_fn(logits.reshape(-1, NUM_GAP_CLASSES), labels.reshape(-1).to(torch_device))
             if teacher is not None:
                 t_logits, t_valid = teacher.gap_logits(batch, logits.size(1))
                 kd = distillation_loss(
-                    logits, t_logits, t_valid, labels.to(device), cfg.distill_temp
+                    logits, t_logits, t_valid, labels.to(torch_device), cfg.distill_temp
                 )
                 loss = (1.0 - cfg.distill_alpha) * loss + cfg.distill_alpha * kd
             optimizer.zero_grad()
@@ -322,7 +332,7 @@ def main(**kwargs: Any) -> None:
             if not math.isfinite(loss_value):
                 raise SystemExit(
                     f"non-finite training loss at step {step}; aborting instead of "
-                    "saving a corrupt checkpoint (check lr / device numerics)"
+                    "saving a corrupt checkpoint (check lr / torch_device numerics)"
                 )
             running += loss_value
             since_log += 1
@@ -346,7 +356,7 @@ def main(**kwargs: Any) -> None:
                     {"mid_epoch_step": step, "epoch": epoch, **distill_extra},
                 )
                 write_training_log(cfg.out, log_steps, log_epochs)
-        metrics = evaluate(model, val_batches, device)
+        metrics = evaluate(model, val_batches, torch_device)
         macro_f1 = float(metrics["macro_f1_structural"])
         console.print(
             f"epoch {epoch} val acc {metrics['accuracy']:.4f} "
@@ -388,4 +398,4 @@ def main(**kwargs: Any) -> None:
 
 
 if __name__ == "__main__":
-    main()
+    typer.run(main)
