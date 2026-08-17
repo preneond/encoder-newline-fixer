@@ -8,7 +8,6 @@ data
 results
 docs
 tests
-ui
 scripts
 artifacts/*
 !artifacts/encoder

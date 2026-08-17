@@ -48,7 +48,13 @@ with fixed whitespace. Docker (bakes in `artifacts/encoder`, CPU-only torch):
 ```bash
 docker build -t newlinefix . && docker run -p 8000:8000 newlinefix
 curl -X POST localhost:8000/fix -H 'Content-Type: application/json' -d '{"text": "que\nries"}'
+
+docker compose up                              # API on :8000 + UI on :8501
 ```
+
+The UI has two modes: under compose it is a thin client of the API (`NEWLINEFIX_API_URL`
+is set, so it offers the single served model), while locally it loads predictors
+in-process from `artifacts/` and lets you compare all models side by side.
 
 Reproducing the full pipeline (data → training → evaluation) is documented in
 [report.md → How to run](report.md#how-to-run).

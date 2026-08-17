@@ -1,0 +1,22 @@
+# Streamlit UI image. Under docker compose the UI is a thin client of the API
+# service (NEWLINEFIX_API_URL), so no model artifacts are baked in here:
+#   docker compose up   # UI on :8501, API on :8000
+
+FROM ghcr.io/astral-sh/uv:python3.14-bookworm-slim
+
+WORKDIR /app
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+
+# Dependency layer first: cached until pyproject.toml/uv.lock change.
+# Dev group included, unlike the API image — streamlit is a dev dependency.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-install-project
+
+COPY src ./src
+COPY ui ./ui
+RUN uv sync --locked
+
+EXPOSE 8501
+# --server.headless: no browser launch, and skips streamlit's first-run email prompt.
+CMD ["uv", "run", "--no-sync", "streamlit", "run", "ui/streamlit_app.py", \
+     "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]

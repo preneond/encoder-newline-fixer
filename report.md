@@ -39,6 +39,8 @@ uv run python scripts/evaluate.py --models all --out results
 uv run poe serve
 # ... or containerized (CPU-only torch; bakes the trained model into the image)
 docker build -t newlinefix . && docker run -p 8000:8000 newlinefix
+# ... or the whole stack: API on :8000 plus the UI on :8501, talking to it over HTTP
+docker compose up
 
 # minimal UI
 uv run streamlit run ui/streamlit_app.py
