@@ -19,6 +19,10 @@ on:
         description: GitHub release tag holding the trained artifact files
         default: model
         required: true
+      private:
+        description: Create the Hub repo as private
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -41,4 +45,6 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         # scripts/... directly: --no-dev above skips poethepoet, the poe task's runner
-        run: uv run python scripts/publish_model.py --repo-id "${{ inputs.repo_id }}"
+        run: >
+          uv run python scripts/publish_model.py --repo-id "${{ inputs.repo_id }}"
+          ${{ inputs.private && '--private' || '--no-private' }}
