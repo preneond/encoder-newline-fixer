@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Newline Fixer</title>
+<style>
+  :root {
+    --paper: #FBFAF7;
+    --ink: #1F2430;
+    --muted: #6B6E76;
+    --faint: #E7E4DC;
+    --card: #FFFFFF;
+    --accent: #2A78D6;
+    --accent-ink: #1D5CA8;
+    --mark: #C4622D;
+    --good: #1B7A4E;
+    --code-bg: #F3F1EA;
+    --bar-rest: #A9B4C4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #16181D;
+      --ink: #E8E6E0;
+      --muted: #9A9DA6;
+      --faint: #2C2F37;
+      --card: #1D2026;
+      --accent: #3987E5;
+      --accent-ink: #6FA8EF;
+      --mark: #E0854E;
+      --good: #4FBE8B;
+      --code-bg: #22252C;
+      --bar-rest: #4D5665;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #16181D;
+    --ink: #E8E6E0;
+    --muted: #9A9DA6;
+    --faint: #2C2F37;
+    --card: #1D2026;
+    --accent: #3987E5;
+    --accent-ink: #6FA8EF;
+    --mark: #E0854E;
+    --good: #4FBE8B;
+    --code-bg: #22252C;
+    --bar-rest: #4D5665;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    line-height: 1.6;
+    margin: 0;
+    font-size: 16px;
+  }
+  .serif { font-family: Charter, "Iowan Old Style", "Palatino Linotype", Georgia, serif; }
+  .mono, code, pre { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+
+  .wrap { max-width: 880px; margin: 0 auto; padding: 0 24px; }
+  .wide { max-width: 1020px; }
+
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--faint);
+  }
+  nav .wrap { display: flex; gap: 18px; align-items: center; overflow-x: auto; padding: 10px 24px; }
+  nav .brand { font-weight: 700; white-space: nowrap; }
+  nav .brand .pil { color: var(--accent); }
+  nav a { color: var(--muted); text-decoration: none; font-size: 13px; white-space: nowrap; }
+  nav a:hover, nav a:focus-visible { color: var(--accent-ink); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+  header.hero { padding: 72px 0 40px; }
+  .eyebrow {
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600;
+  }
+  h1 {
+    font-size: clamp(40px, 7vw, 64px); line-height: 1.05; margin: 10px 0 18px;
+    text-wrap: balance; font-weight: 700;
+  }
+  h1 .ret { color: var(--accent); }
+  .lede { font-size: 19px; max-width: 62ch; color: var(--ink); }
+  .lede strong { color: var(--accent-ink); }
+
+  h2 {
+    font-size: 30px; margin: 0 0 6px; text-wrap: balance;
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  h2 .glyph { color: var(--accent); font-weight: 400; }
+  h3 { font-size: 19px; margin: 26px 0 8px; }
+  section { padding: 46px 0 10px; }
+  section + section { border-top: 1px solid var(--faint); margin-top: 42px; }
+  .kicker { color: var(--muted); max-width: 68ch; margin-top: 0; }
+  p { max-width: 68ch; }
+  .note { font-size: 13.5px; color: var(--muted); max-width: 72ch; }
+
+  /* hero demo */
+  .demo { margin-top: 34px; border: 1px solid var(--faint); border-radius: 10px; background: var(--card); overflow: hidden; }
+  .demo-bar { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--faint); align-items: center; }
+  .demo-bar .hint { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .demo button {
+    font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    padding: 6px 14px; border-radius: 999px; border: 1px solid var(--faint);
+    background: transparent; color: var(--muted);
+  }
+  .demo button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .demo pre {
+    margin: 0; padding: 22px 24px; font-size: 14.5px; line-height: 1.75;
+    overflow-x: auto; white-space: pre; background: var(--card);
+  }
+  .demo .ws { color: var(--mark); font-weight: 600; }
+  .demo .fixed .ws { color: var(--accent-ink); }
+  .demo .join { background: color-mix(in srgb, var(--good) 18%, transparent); border-radius: 3px; padding: 0 1px; }
+
+  /* gap mechanism */
+  .gaprow { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 22px 0 8px; }
+  .word {
+    background: var(--code-bg); border: 1px solid var(--faint); border-radius: 6px;
+    padding: 5px 10px; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 14px;
+  }
+  .gap {
+    font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+    padding: 3px 7px; border-radius: 999px; border: 1.5px solid var(--bar-rest); color: var(--muted);
+  }
+  .gap.hot { border-color: var(--accent); color: var(--accent-ink); }
+  .classes { width: 100%; border-collapse: collapse; margin: 18px 0 6px; font-size: 14.5px; }
+  .classes th, .classes td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--faint); }
+  .classes th { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .classes code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+
+  figure { margin: 26px 0; }
+  figure svg { max-width: 100%; height: auto; display: block; }
+  figcaption { font-size: 13.5px; color: var(--muted); margin-top: 10px; max-width: 76ch; }
+  .figbox { border: 1px solid var(--faint); border-radius: 10px; padding: 20px 20px 12px; background: var(--card); overflow-x: auto; }
+
+  /* metric cards */
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 12px; margin: 24px 0; }
+  .cardm { border: 1px solid var(--faint); border-radius: 10px; padding: 14px 16px; background: var(--card); }
+  .cardm .name { font-weight: 700; font-size: 14.5px; }
+  .cardm .what { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  /* results table */
+  .rtable { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  .rtable th, .rtable td { padding: 9px 12px; border-bottom: 1px solid var(--faint); text-align: right; }
+  .rtable th:first-child, .rtable td:first-child { text-align: left; }
+  .rtable th { font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .rtable tr.hero-row td { font-weight: 700; color: var(--accent-ink); }
+  .tscroll { overflow-x: auto; }
+
+  .verdict {
+    border-left: 3px solid var(--accent); background: var(--card);
+    border-radius: 0 10px 10px 0; padding: 16px 20px; margin: 26px 0; max-width: 74ch;
+  }
+  .verdict p { margin: 0; }
+
+  /* debugging sequence */
+  ol.hunt { list-style: none; counter-reset: step; padding: 0; margin: 24px 0; max-width: 76ch; }
+  ol.hunt li { counter-increment: step; position: relative; padding: 0 0 22px 52px; }
+  ol.hunt li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: 0;
+    width: 32px; height: 32px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px solid var(--accent); color: var(--accent-ink);
+    font-weight: 700; font-size: 14px; background: var(--card);
+  }
+  ol.hunt li:not(:last-child)::after {
+    content: ""; position: absolute; left: 15.5px; top: 36px; bottom: 2px;
+    width: 1.5px; background: var(--faint);
+  }
+  ol.hunt .obs { font-weight: 700; }
+  ol.hunt p { margin: 2px 0 0; font-size: 15px; }
+
+  .pill { display: inline-block; font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 10px; }
+  .pill.ok { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+
+  footer { border-top: 1px solid var(--faint); margin-top: 60px; padding: 28px 0 60px; color: var(--muted); font-size: 13.5px; }
+  footer code { background: var(--code-bg); padding: 1px 6px; border-radius: 4px; }
+
+  /* chart tooltip */
+  #tip {
+    position: fixed; z-index: 99; pointer-events: none; display: none;
+    background: var(--ink); color: var(--paper); font-size: 12.5px;
+    padding: 6px 10px; border-radius: 6px; max-width: 260px;
+    font-variant-numeric: tabular-nums;
+  }
+  [data-tip] { cursor: default; }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .55s ease, transform .55s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+</style>
+</head>
+<body>
+<nav aria-label="Sections">
+  <div class="wrap wide">
+    <span class="brand serif"><span class="pil">&#182;</span> Newline Fixer</span>
+    <a href="#framing">Framing</a>
+    <a href="#data">Data</a>
+    <a href="#protocol">Evaluation</a>
+    <a href="#results">Results</a>
+    <a href="#exploration">Exploration</a>
+    <a href="#warstory">Debugging</a>
+    <a href="#engineering">Engineering</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow">Applied ML Engineer Challenge &#183; solution walkthrough</div>
+    <h1 class="serif">Every word stays.<br>Only the whitespace moves<span class="ret">&#8629;</span></h1>
+    <p class="lede">A machine-learning service that repairs newline placement in English text.
+    The task is framed as <strong>4-class classification of the gap between consecutive words</strong> &#8212;
+    so the model can rewrite separators and nothing else. The output words are guaranteed identical
+    to the input, <em>by construction</em>. No hallucination is possible.</p>
+
+    <div class="demo" id="demo">
+      <div class="demo-bar" role="tablist" aria-label="Before and after">
+        <button id="btn-broken" aria-pressed="true">Broken input</button>
+        <button id="btn-fixed" aria-pressed="false">Fixed by the model</button>
+        <span class="hint">the challenge&#8217;s own example &#183; <span class="mono">&#8629;</span> = newline the model sees / places</span>
+      </div>
+      <pre id="pane-broken" aria-label="Broken input text">3.2.3 Applications of Attention<span class="ws">&#8629;</span>
+ in our Model The Transformer uses multi-head attention in three different ways: &#8226; In "encoder-decoder attention" layers,<span class="ws">&#8629;</span>
+ the que<span class="ws">&#8629;</span>
+ries come from the previous decoder layer.[...]</pre>
+      <pre id="pane-fixed" class="fixed" hidden aria-label="Fixed output text">3.2.3 Applications of Attention in our Model<span class="ws">&#182;</span>
+<span class="ws">&#182;</span>
+The Transformer uses multi-head attention in three different ways:<span class="ws">&#8629;</span>
+&#8226; In "encoder-decoder attention" layers, the <span class="join">queries</span> come from the previous decoder layer.<span class="ws">&#8629;</span>
+[...]</pre>
+    </div>
+    <p class="note">Heading isolated, paragraph break placed, bullet on its own line, and the
+    mid-line split <code>que&#8203;ries</code> re-joined &#8212; the green span is a <code>JOIN</code> prediction.</p>
+  </div>
+</header>
+
+<section id="framing">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#183;</span>Gap classification, not generation</h2>
+    <p class="kicker">Text is split into whitespace-delimited words. Between each consecutive pair
+    sits exactly one gap, and the model assigns it one of four separators. Reconstruction interleaves
+    the original words with the predicted separators &#8212; a token-classification head, not a decoder.</p>
+
+    <div class="gaprow" aria-label="Words with classified gaps">
+      <span class="word">Attention</span><span class="gap hot">NEWLINE</span>
+      <span class="word">in</span><span class="gap">SPACE</span>
+      <span class="word">our</span><span class="gap">SPACE</span>
+      <span class="word">Model</span><span class="gap hot">PARA</span>
+      <span class="word">The</span><span class="gap">SPACE</span>
+      <span class="word">Transformer</span><span class="gap">SPACE</span>
+      <span class="word">&#8230;</span><span class="gap">SPACE</span>
+      <span class="word">que</span><span class="gap hot">JOIN</span>
+      <span class="word">ries</span>
+    </div>
+
+    <table class="classes">
+      <thead><tr><th>class</th><th>rendered as</th><th>meaning</th><th>share of gaps</th></tr></thead>
+      <tbody>
+        <tr><td><code>JOIN</code></td><td><code>""</code></td><td>two halves of one word split by a bad line break</td><td>~1.3%</td></tr>
+        <tr><td><code>SPACE</code></td><td><code>" "</code></td><td>ordinary separator</td><td>~94%</td></tr>
+        <tr><td><code>NEWLINE</code></td><td><code>"\n"</code></td><td>line break: bullet items, headings</td><td>~0.9%</td></tr>
+        <tr><td><code>PARA</code></td><td><code>"\n\n"</code></td><td>paragraph boundary</td><td>~2.1%</td></tr>
+      </tbody>
+    </table>
+
+    <p>Input newlines are deliberately <strong>ignored</strong> &#8212; the problem statement says they are
+    unreliable, so the text is re-tokenized on all whitespace and the worst case (every newline wrong)
+    becomes identical to the average case. Long documents run through overlapping sliding windows
+    stitched on their central regions.</p>
+  </div>
+</section>
+
+<section id="data">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#182;</span>The labels were free</h2>
+    <p class="kicker">Clean, well-formatted text already contains the answer. Structure is destroyed
+    programmatically; the destroyed copy is the input, the original is the label. No annotation budget.</p>
+
+    <figure>
+      <div class="figbox">
+      <svg viewBox="0 0 940 210" role="img" aria-label="Data pipeline: two corpora are streamed, cleaned, split by content hash, then corrupted into training pairs" style="min-width:700px">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <g fill="none" stroke="currentColor" stroke-width="1.4">
+          <rect x="10" y="28" width="170" height="44" rx="8"/>
+          <rect x="10" y="96" width="170" height="44" rx="8"/>
+          <rect x="256" y="62" width="150" height="44" rx="8"/>
+          <rect x="482" y="62" width="128" height="44" rx="8"/>
+          <rect x="686" y="14" width="118" height="36" rx="8" stroke-dasharray="4 3"/>
+          <rect x="686" y="66" width="118" height="36" rx="8" stroke-dasharray="4 3"/>
+          <rect x="686" y="118" width="118" height="36" rx="8" stroke-dasharray="4 3"/>
+        </g>
+        <rect x="686" y="170" width="240" height="36" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+        <g font-size="13" fill="currentColor">
+          <text x="95" y="46" text-anchor="middle" font-weight="600">wikimedia/wikipedia</text>
+          <text x="95" y="63" text-anchor="middle" font-size="11.5" opacity="0.65">prose + headings</text>
+          <text x="95" y="114" text-anchor="middle" font-weight="600">neuralwork/arxiver</text>
+          <text x="95" y="131" text-anchor="middle" font-size="11.5" opacity="0.65">markdown: lists, headings</text>
+          <text x="331" y="81" text-anchor="middle" font-weight="600">clean + normalize</text>
+          <text x="331" y="97" text-anchor="middle" font-size="11.5" opacity="0.65">canonical &#9248; &#8629; &#182; only</text>
+          <text x="546" y="81" text-anchor="middle" font-weight="600">split by</text>
+          <text x="546" y="97" text-anchor="middle" font-weight="600">content hash</text>
+          <text x="745" y="37" text-anchor="middle">train 23.5k docs</text>
+          <text x="745" y="89" text-anchor="middle">val 227</text>
+          <text x="745" y="141" text-anchor="middle">test 258</text>
+        </g>
+        <text x="806" y="193" font-size="13" font-weight="600" fill="var(--accent)" text-anchor="middle">corrupt &#8594; (words, gap labels)</text>
+        <g stroke="currentColor" stroke-width="1.4" marker-end="url(#arr)" fill="none">
+          <path d="M180,50 C215,50 220,72 254,78"/>
+          <path d="M180,118 C215,118 220,96 254,90"/>
+          <line x1="406" y1="84" x2="480" y2="84"/>
+          <path d="M610,74 C645,66 650,40 684,33"/>
+          <line x1="610" y1="84" x2="684" y2="84"/>
+          <path d="M610,94 C645,102 650,128 684,135"/>
+        </g>
+        <path d="M745,154 L745,168" stroke="var(--accent)" stroke-width="2" marker-end="url(#arr)" fill="none"/>
+        <g font-size="11" fill="currentColor" opacity="0.65">
+          <text x="216" y="60" text-anchor="middle">stream</text>
+          <text x="443" y="76" text-anchor="middle">filter, dedupe</text>
+          <text x="647" y="60" text-anchor="middle">stable</text>
+          <text x="647" y="76" text-anchor="middle">membership</text>
+          <text x="760" y="166" text-anchor="start" transform="translate(6,0)">drop &#8629;, split ~2% of words</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Corpora are streamed (never downloaded in full), normalized to canonical whitespace,
+      and split by content hash so train/val/test membership never shifts when the corpus is regenerated.
+      Corruption drops the newlines and splits ~2% of words mid-word for <code>JOIN</code> supervision.</figcaption>
+    </figure>
+
+    <p class="note">Data diligence that mattered: <code>Salesforce/wikitext</code> "raw" was probed first
+    and <em>rejected</em> &#8212; the variant is word-tokenized (<code>&nbsp;@-@&nbsp;</code> joiners, split
+    contractions) and would have poisoned training.</p>
+  </div>
+</section>
+
+<section id="protocol">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#183;</span>Metrics before models</h2>
+    <p class="kicker">The majority baseline scores 95.7% gap <em>accuracy</em> by predicting SPACE
+    everywhere &#8212; so accuracy is the wrong metric. Every number in this page is exactly reproducible:
+    seeded corruption, content-hashed splits, one command.</p>
+    <div class="cards">
+      <div class="cardm"><div class="name">Macro-F1 &#183; {JOIN, NEWLINE, PARA}</div>
+        <div class="what">the primary quality number &#8212; SPACE excluded as the trivial majority class</div></div>
+      <div class="cardm"><div class="name">Break-F1</div>
+        <div class="what">binary &#8220;should any break go here&#8221; &#8212; forgives NEWLINE&#8596;PARA confusion</div></div>
+      <div class="cardm"><div class="name">Pk / WindowDiff</div>
+        <div class="what">standard segmentation error over paragraph boundaries (lower is better)</div></div>
+      <div class="cardm"><div class="name">Edit similarity + exact match</div>
+        <div class="what">character-level closeness of the reconstructed text, valid under JOIN mistakes</div></div>
+      <div class="cardm"><div class="name">Words/s &#183; ms/doc</div>
+        <div class="what">serving throughput and latency, measured on the same inputs</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="results">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#8629;</span>Results</h2>
+    <p class="kicker">Held-out test split: 120 documents, ~205k words, seed 13. Four models under one
+    protocol &#8212; two baselines that justify the ML, a from-scratch byte-level BiLSTM, and the served
+    fine-tuned encoder.</p>
+
+    <figure>
+      <div class="figbox">
+      <svg viewBox="0 0 720 240" role="img" aria-label="Bar chart of test macro-F1: encoder 0.815, distilled BiLSTM 0.675, scratch BiLSTM 0.632, rules 0.034, majority 0.000" style="min-width:560px">
+        <g font-size="13" fill="currentColor">
+          <text x="150" y="34" text-anchor="end" font-weight="700">encoder &#183; 82M</text>
+          <text x="150" y="76" text-anchor="end">distilled BiLSTM &#183; 2.4M</text>
+          <text x="150" y="118" text-anchor="end">scratch BiLSTM &#183; 2.4M</text>
+          <text x="150" y="160" text-anchor="end">rules</text>
+          <text x="150" y="202" text-anchor="end">majority</text>
+        </g>
+        <g>
+          <rect x="166" y="18" width="440" height="22" rx="4" fill="var(--accent)" data-tip="encoder &#8212; fine-tuned distilroberta-base &#183; macro-F1 0.815 &#183; break-F1 0.769 &#183; Pk 0.240 &#183; 10,288 words/s"/>
+          <rect x="166" y="60" width="365" height="22" rx="4" fill="var(--bar-rest)" data-tip="BiLSTM distilled from the encoder (&#945;=0.5) &#183; macro-F1 0.675 &#183; same size and speed as scratch"/>
+          <rect x="166" y="102" width="341" height="22" rx="4" fill="var(--bar-rest)" data-tip="byte-level BiLSTM trained from scratch &#183; macro-F1 0.632 &#183; trained on 4&#215; more data than the encoder"/>
+          <rect x="166" y="144" width="18" height="22" rx="4" fill="var(--bar-rest)" data-tip="hand-written rules: newline before bullets and numbered headings &#183; macro-F1 0.034"/>
+          <rect x="166" y="186" width="2.5" height="22" rx="1" fill="var(--bar-rest)" data-tip="predict SPACE everywhere &#183; macro-F1 0.000 &#8212; yet 95.7% gap accuracy"/>
+        </g>
+        <g font-size="13" fill="currentColor" font-variant-numeric="tabular-nums">
+          <text x="614" y="34" font-weight="700">0.815</text>
+          <text x="539" y="76">0.675</text>
+          <text x="515" y="118">0.632</text>
+          <text x="192" y="160">0.034</text>
+          <text x="177" y="202">0.000</text>
+        </g>
+        <line x1="166" y1="222" x2="706" y2="222" stroke="currentColor" stroke-width="1" opacity="0.35"/>
+        <g font-size="11" fill="currentColor" opacity="0.65">
+          <text x="166" y="236">0</text><text x="430" y="236" text-anchor="middle">test macro-F1 over {JOIN, NEWLINE, PARA}</text><text x="706" y="236" text-anchor="end">1.0</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Transfer learning wins with 4&#215; <em>less</em> training data (8k vs 30k windows) &#8212; the
+      pretrained encoder already knows &#8220;queries&#8221; is a word and where sentences break. Distillation from
+      the encoder teacher lifts the tiny BiLSTM +4.3 F1 at identical size and speed. Hover a bar for detail.</figcaption>
+    </figure>
+
+    <div class="tscroll">
+    <table class="rtable">
+      <thead><tr><th>Model</th><th>Gap acc</th><th>Macro-F1</th><th>Break-F1</th><th>Pk &#8595;</th><th>EditSim</th><th>Words/s</th></tr></thead>
+      <tbody>
+        <tr><td>majority</td><td>0.957</td><td>0.000</td><td>0.000</td><td>0.341</td><td>0.986</td><td>~10&#8313;</td></tr>
+        <tr><td>rules</td><td>0.954</td><td>0.034</td><td>0.040</td><td>0.348</td><td>0.986</td><td>~10&#8311;</td></tr>
+        <tr class="hero-row"><td>encoder (served)</td><td>0.981</td><td>0.815</td><td>0.769</td><td>0.240</td><td>0.994</td><td>10,288</td></tr>
+        <tr><td>scratch BiLSTM</td><td>0.959</td><td>0.632</td><td>0.617</td><td>0.365</td><td>0.987</td><td>2,801</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="note">The speed result is counter-intuitive and real: the 34&#215;-larger transformer runs one
+    parallel pass per window, while the recurrent model steps byte-by-byte (~1,200 sequential steps per
+    window) that batch-1 GPU inference cannot amortize.</p>
+  </div>
+</section>
+
+<section id="exploration">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#183;</span>Exploration: three axes, one protocol</h2>
+    <p class="kicker">Every claim below is a measurement, not an opinion &#8212; same seeds, same test set.</p>
+
+    <h3>1 &#183; Learning rate: the conventional wisdom left 2.6 points on the table</h3>
+    <figure>
+      <div class="figbox">
+      <svg viewBox="0 0 640 190" role="img" aria-label="Line chart of test macro-F1 versus learning rate: 0.729 at 2e-5, 0.789 at 5e-5, 0.815 at 1e-4, 0.809 at 2e-4" style="min-width:480px">
+        <g stroke="currentColor" opacity="0.18">
+          <line x1="70" y1="30" x2="610" y2="30"/><line x1="70" y1="75" x2="610" y2="75"/>
+          <line x1="70" y1="120" x2="610" y2="120"/>
+        </g>
+        <line x1="70" y1="150" x2="610" y2="150" stroke="currentColor" opacity="0.4"/>
+        <polyline points="120,132 285,63 450,33 560,40" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+        <g fill="var(--accent)">
+          <circle cx="120" cy="132" r="5" data-tip="lr 2e-5 &#183; test macro-F1 0.729 &#8212; the conventional fine-tuning rate range"/>
+          <circle cx="285" cy="63" r="5" data-tip="lr 5e-5 &#183; test macro-F1 0.789"/>
+          <circle cx="450" cy="33" r="7" stroke="var(--card)" stroke-width="2" data-tip="lr 1e-4 &#183; test macro-F1 0.815 &#8212; promoted to the served model and the trainer default"/>
+          <circle cx="560" cy="40" r="5" data-tip="lr 2e-4 &#183; test macro-F1 0.809 &#8212; quality starts regressing"/>
+        </g>
+        <g font-size="12.5" fill="currentColor" font-variant-numeric="tabular-nums">
+          <text x="120" y="120" text-anchor="middle">0.729</text>
+          <text x="285" y="51" text-anchor="middle">0.789</text>
+          <text x="450" y="19" text-anchor="middle" font-weight="700">0.815</text>
+          <text x="560" y="64" text-anchor="middle">0.809</text>
+        </g>
+        <g font-size="11.5" fill="currentColor" opacity="0.7">
+          <text x="120" y="168" text-anchor="middle">2e-5</text>
+          <text x="285" y="168" text-anchor="middle">5e-5</text>
+          <text x="450" y="168" text-anchor="middle">1e-4</text>
+          <text x="560" y="168" text-anchor="middle">2e-4</text>
+          <text x="340" y="186" text-anchor="middle">learning rate (log scale) &#8594; test macro-F1</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>With one epoch over 8k windows, the classification head benefits from a hotter schedule
+      than the usual 2e-5&#8211;5e-5 fine-tuning range. The 1e-4 model was promoted after verifying it fixes the
+      README example identically.</figcaption>
+    </figure>
+
+    <h3>2 &#183; Distillation: upgrading the tiny model for free at inference time</h3>
+    <p>The fine-tuned encoder was frozen as a teacher and the 2.4M-param BiLSTM retrained with per-gap
+    soft targets: <span class="mono">loss = (1&#8722;&#945;)&#183;CE + &#945;&#183;&#964;&#178;&#183;KL</span>, &#964; = 2. Balanced hard+soft (&#945; = 0.5)
+    buys <strong>+4.3 test macro-F1 at identical size and speed</strong> &#8212; soft targets carry inter-class
+    structure a hard label can&#8217;t (&#8220;NEWLINE-or-PARA, certainly not SPACE&#8221;). Nearly all-soft (&#945; = 0.9) gives
+    the gain back: the hard-label term anchors the rare-class boundaries.</p>
+
+    <h3>3 &#183; Backbone sweep: the frontier around the served model</h3>
+    <figure>
+      <div class="figbox">
+      <svg viewBox="0 0 680 300" role="img" aria-label="Scatter of parameter count versus test macro-F1 for four backbones; distilroberta-base at 82M parameters and 0.814 is the served sweet spot; roberta-base at 125M reaches 0.825 at twice the latency" style="min-width:520px">
+        <g stroke="currentColor" opacity="0.18">
+          <line x1="80" y1="40" x2="650" y2="40"/><line x1="80" y1="100" x2="650" y2="100"/>
+          <line x1="80" y1="160" x2="650" y2="160"/><line x1="80" y1="220" x2="650" y2="220"/>
+        </g>
+        <line x1="80" y1="250" x2="650" y2="250" stroke="currentColor" opacity="0.4"/>
+        <g font-size="11.5" fill="currentColor" opacity="0.7" font-variant-numeric="tabular-nums">
+          <text x="72" y="44" text-anchor="end">0.85</text>
+          <text x="72" y="104" text-anchor="end">0.80</text>
+          <text x="72" y="164" text-anchor="end">0.75</text>
+          <text x="72" y="224" text-anchor="end">0.70</text>
+          <text x="150" y="268" text-anchor="middle">14M</text>
+          <text x="405" y="268" text-anchor="middle">66M</text>
+          <text x="460" y="268" text-anchor="middle">82M</text>
+          <text x="565" y="268" text-anchor="middle">125M</text>
+          <text x="365" y="292" text-anchor="middle">parameters (log scale) &#8594; test macro-F1 &#183; same 8k-window budget, lr 1e-4, seed 42</text>
+        </g>
+        <g fill="var(--bar-rest)">
+          <circle cx="150" cy="217" r="8" data-tip="electra-small-discriminator &#183; 14M &#183; macro-F1 0.702 &#183; 4,727 words/s &#8212; uncased: weakest exactly on NEWLINE (headings), F1 0.685 vs cased distilbert&#8217;s 0.772"/>
+          <circle cx="405" cy="144" r="8" data-tip="distilbert-base-cased &#183; 66M &#183; macro-F1 0.763 &#183; 1,974 words/s"/>
+          <circle cx="565" cy="70" r="8" data-tip="roberta-base &#183; 125M &#183; macro-F1 0.825 &#183; 1,039 words/s &#8212; trained on CPU after the MPS NaN investigation below"/>
+        </g>
+        <circle cx="460" cy="83" r="10" fill="var(--accent)" stroke="var(--card)" stroke-width="2.5" data-tip="distilroberta-base &#183; 82M &#183; macro-F1 0.814 &#183; 2,044 words/s &#8212; the served model"/>
+        <g font-size="12.5" fill="currentColor">
+          <text x="150" y="199" text-anchor="middle">electra-small</text>
+          <text x="405" y="126" text-anchor="middle">distilbert-cased</text>
+          <text x="561" y="52" text-anchor="middle">roberta-base</text>
+          <text x="452" y="115" text-anchor="middle" font-weight="700">distilroberta &#183; served</text>
+        </g>
+      </svg>
+      </div>
+      <figcaption>Quality tracks size with sharply diminishing returns: roberta-base buys +1.1 macro-F1
+      for 1.5&#215; the parameters and ~2&#215; the latency; electra-small gives up 11 points for a 6&#215; smaller
+      footprint. Throughputs from one eval run on one machine &#8212; relative ordering is what matters. Hover
+      the points.</figcaption>
+    </figure>
+
+    <div class="verdict">
+      <p><strong>The judgment call:</strong> roberta-base wins on every quality metric &#8212; and it was
+      <em>not</em> promoted. It falls short of a clear win once serving enters the frame: 1.5&#215; the
+      parameters, half the throughput, and a training path that cannot run on Apple-silicon GPUs.
+      <span class="mono" style="color:var(--accent-ink)">distilroberta-base stays the served model &#8212; the best
+      quality-per-millisecond on the frontier.</span></p>
+    </div>
+  </div>
+</section>
+
+<section id="warstory">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#8629;</span>The debugging story worth telling</h2>
+    <p class="kicker">roberta-base refused to fine-tune on this machine: training collapsed to NaN within
+    50 steps, twice, at two different learning rates. Hypothesis-driven isolation, one experiment per step:</p>
+
+    <ol class="hunt">
+      <li><p class="obs">Identical collapse at lr 1e-4 and lr 2e-5.</p>
+        <p>Two learning rates, bit-identical wreckage &#8594; not a hyperparameter. Something deterministic
+        poisons the run regardless of step size.</p></li>
+      <li><p class="obs">Loss finite. Gradients finite. Weights NaN &#8212; right after <span class="mono">optimizer.step()</span>.</p>
+        <p>An instrumented copy of the trainer checked every tensor every step: the corruption enters
+        through the AdamW update itself, from mathematically valid inputs.</p></li>
+      <li><p class="obs"><span class="mono">clip_grad_norm_</span> reports a total norm of 0.0 while the largest single gradient is 4.86.</p>
+        <p>A norm can never be smaller than its largest element. The MPS kernels are returning garbage &#8212;
+        provably, not speculatively.</p></li>
+      <li><p class="obs">Adding a per-step <span class="mono">.item()</span> sync makes the NaN vanish.</p>
+        <p>Forced synchronization between backward, clip, and step hides the failure &#8594; an asynchronous
+        command-buffer race in the torch 2.13 MPS backend, triggered by this model&#8217;s 199-tensor parameter
+        set. The smaller backbones never hit it.</p></li>
+      <li><p class="obs">Resolution <span class="pill ok">fixed</span></p>
+        <p>roberta-base was trained on CPU with the identical recipe; both trainers now abort on a
+        non-finite loss instead of saving a corrupt checkpoint.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="engineering">
+  <div class="wrap">
+    <h2 class="serif"><span class="glyph">&#182;</span>Engineering underneath</h2>
+    <div class="cards">
+      <div class="cardm"><div class="name">106 unit &amp; property tests</div>
+        <div class="what">round-trip and label-alignment invariants property-tested; windowed stitching tested against an index oracle</div></div>
+      <div class="cardm"><div class="name">One-command gates</div>
+        <div class="what"><span class="mono">poe check</span> = ruff + ty + pytest &#8212; the same command CI runs on every push</div></div>
+      <div class="cardm"><div class="name">Modern toolchain</div>
+        <div class="what">Python 3.14 &#183; uv &#183; click CLIs with pydantic configs &#183; rich console output</div></div>
+      <div class="cardm"><div class="name">Reproducible by construction</div>
+        <div class="what">seeded corruption, content-hashed splits &#8212; quality numbers repeat exactly across machines</div></div>
+      <div class="cardm"><div class="name">Honest failure reporting</div>
+        <div class="what">interrupted runs footnoted, MPS bug documented, throughput variance labeled</div></div>
+      <div class="cardm"><div class="name">Known limitations</div>
+        <div class="what">NEWLINE&#8596;PARA confusion dominates residual error; word-merges are out of scope for the gap framing; corpus conventions define &#8220;correct&#8221;</div></div>
+    </div>
+
+    <div class="verdict">
+      <p><strong>Conclusion.</strong> Did we use an existing model? Yes &#8212; the winner is a fine-tune of one.
+      On this task, at this data scale, transfer learning dominates training from scratch on quality
+      (0.815 vs 0.632), data-efficiency (4&#215; less data), and &#8212; at batch-1 GPU inference &#8212; even speed.
+      Two cheap wins came from systematic exploration: the lr sweep (+2.6 F1 free) and distillation
+      (+4.3 F1 for the tiny model). The backbone sweep confirmed the serving choice rather than changing it.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p>Every number regenerates with one command: <code>uv run python scripts/evaluate.py --models all --seed 13</code> &#183;
+    full methodology in <code>report.md</code> &#183; training budgets were deliberately small (single epoch,
+    8k of ~260k available windows) &#8212; validation F1 was still climbing, so the headroom is known, not guessed.</p>
+  </div>
+</footer>
+
+<div id="tip" role="status"></div>
+
+<script>
+  // before/after toggle
+  const btnB = document.getElementById('btn-broken');
+  const btnF = document.getElementById('btn-fixed');
+  const paneB = document.getElementById('pane-broken');
+  const paneF = document.getElementById('pane-fixed');
+  function show(fixed) {
+    btnB.setAttribute('aria-pressed', String(!fixed));
+    btnF.setAttribute('aria-pressed', String(fixed));
+    paneB.hidden = fixed;
+    paneF.hidden = !fixed;
+  }
+  btnB.addEventListener('click', () => show(false));
+  btnF.addEventListener('click', () => show(true));
+
+  // chart tooltips
+  const tip = document.getElementById('tip');
+  document.querySelectorAll('[data-tip]').forEach(el => {
+    el.addEventListener('mouseenter', () => { tip.textContent = el.dataset.tip; tip.style.display = 'block'; });
+    el.addEventListener('mousemove', e => {
+      const pad = 14;
+      let x = e.clientX + pad, y = e.clientY + pad;
+      const r = tip.getBoundingClientRect();
+      if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad;
+      if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad;
+      tip.style.left = x + 'px'; tip.style.top = y + 'px';
+    });
+    el.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  });
+
+  // scroll reveal (sections), skipped under reduced motion via CSS
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.08 });
+  document.querySelectorAll('section .wrap > *').forEach(el => { el.classList.add('reveal'); io.observe(el); });
+</script>
+</body>
+</html>

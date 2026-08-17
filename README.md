@@ -30,7 +30,8 @@ the output words are guaranteed identical to the input. The served model is a
 fine-tuned `distilroberta-base` token classifier; it is compared against a
 from-scratch byte-level BiLSTM and two non-neural baselines. Full methodology,
 experiments, and results: **[report.md](report.md)** · interactive walkthrough:
-**[solution presentation](https://claude.ai/code/artifact/9bdefd09-0df2-4632-8a4b-ea48c5cd6a5c)**.
+**[solution presentation](https://claude.ai/code/artifact/9bdefd09-0df2-4632-8a4b-ea48c5cd6a5c)**
+(also in this repo: [docs/presentation.html](docs/presentation.html)).
 
 ## Quickstart
 
