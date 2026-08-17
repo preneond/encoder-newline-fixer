@@ -210,7 +210,8 @@ served model** — distilroberta-base keeps the best quality-per-millisecond, an
 roberta-base's margin is well short of the "clearly wins on quality" bar that
 promoted the lr=1e-4 fine-tune.
 
-\* roberta-base could not be fine-tuned on Apple MPS (torch 2.13.0): training
+\* roberta-base could not be fine-tuned on Apple MPS (reproduced on torch 2.13.0
+*and* 2.12.1, so no released version avoids it): training
 collapsed to NaN within 50 steps at every learning rate tried — loss and gradients
 finite but weights NaN after the AdamW step, with `clip_grad_norm_` returning
 impossibly small total norms; per-step syncs masked the failure, implicating an
