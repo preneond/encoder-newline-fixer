@@ -15,3 +15,6 @@ artifacts/
 .DS_Store
 .idea/
 .vscode/
+
+# Tooling scratch
+.playwright-mcp/

@@ -14,8 +14,8 @@ cleaning is unit-testable offline.
 
 import hashlib
 import html
+import logging
 import re
-import sys
 from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING
 
@@ -23,6 +23,8 @@ from newlinefix.gaps import SPACE, GapText, gaps_to_text, normalize, text_to_gap
 
 if TYPE_CHECKING:
     from datasets import IterableDataset
+
+logger = logging.getLogger(__name__)
 
 MIN_DOC_WORDS = 80
 MIN_STRUCTURAL_GAPS = 2  # gaps that are NEWLINE/PARA: a doc must have some structure
@@ -206,10 +208,11 @@ def _open_markdown_stream(seed: int) -> tuple[IterableDataset, str, str]:
         except Exception as exc:  # gated repo, missing field, network failure, ...
             # Loud: a silent fallback would swap half the training corpus between
             # runs on a transient hub error.
-            print(
-                f"warning: markdown corpus '{path}' unavailable "
-                f"({type(exc).__name__}: {exc}); trying next candidate",
-                file=sys.stderr,
+            logger.warning(
+                "markdown corpus '%s' unavailable (%s: %s); trying next candidate",
+                path,
+                type(exc).__name__,
+                exc,
             )
             errors.append(f"{path}: {type(exc).__name__}: {exc}")
             continue
