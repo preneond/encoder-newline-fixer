@@ -2,10 +2,10 @@
 
 POST /fix accepts raw text and returns the same words with re-placed whitespace
 (see ``newlinefix.predict.fix_text`` for the guarantee). The served model is
-loaded once, lazily, from NEWLINEFIX_MODEL_DIR; when unset, the local artifact
-dir is used if it exists, otherwise the published Hub checkpoint is downloaded —
-so a fresh clone serves without any local model files. Tests inject a
-lightweight predictor via FastAPI dependency overrides instead.
+loaded once, at startup, from NEWLINEFIX_MODEL_DIR; when unset, the local
+artifact dir is used if it exists, otherwise the published Hub checkpoint is
+downloaded — so a fresh clone serves without any local model files. Tests
+inject a lightweight predictor via FastAPI dependency overrides instead.
 
 Run locally:  uv run poe serve  (scripts/serve.py picks the model, then runs uvicorn)
 """
@@ -34,12 +34,14 @@ def default_model_source() -> str:
 
 
 @asynccontextmanager
-async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def _lifespan(app_: FastAPI) -> AsyncIterator[None]:
     """Load the model at startup: a bad model source fails the boot loudly
     instead of surfacing as HTTP 500s, and concurrent first requests can't
-    each trigger their own load. (Tests bypass this via dependency overrides.)
+    each trigger their own load. Skipped when tests have overridden the
+    predictor dependency (overrides only intercept Depends(), not this call).
     """
-    get_predictor()
+    if get_predictor not in app_.dependency_overrides:
+        get_predictor()
     yield
 
 

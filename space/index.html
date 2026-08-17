@@ -59,6 +59,7 @@ import { AutoTokenizer, AutoModelForTokenClassification, Tensor } from
 const REPO = "preneond/newlinefix-encoder";
 const SEPARATORS = ["", " ", "\n", "\n\n"]; // JOIN, SPACE, NEWLINE, PARA (id2label order)
 const MAX_WORDS = 170; // single-window demo; the full service stitches sliding windows
+const MAX_TOKENS = 512;  // distilroberta's position limit, mirroring the Python path
 
 const statusEl = document.getElementById("status");
 const button = document.getElementById("fix");
@@ -90,7 +91,10 @@ async function load() {
 // (add_prefix_space), gap i is classified at the LAST subtoken of word i, and
 // the original words are re-joined with the predicted separators.
 async function fixText(text) {
-  let words = text.split(/\s+/).filter(Boolean);
+  // Match Python's whitespace set (\x1c-\x1f and NEL split; U+FEFF does not).
+  let words = text
+    .split(/[ \t\n\v\f\r\u001c-\u001f\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+/)
+    .filter(Boolean);
   if (words.length === 0) return { fixed: "", note: "" };
   let note = "";
   if (words.length > MAX_WORDS) {
@@ -104,6 +108,9 @@ async function fixText(text) {
     ids.push(...pieces);
     lastSubtoken.push(ids.length - 1);
   }
+  // Token cap, mirroring the Python path's truncation=True, max_length=512:
+  // truncated gaps fall back to SPACE below.
+  if (ids.length > MAX_TOKENS - 1) ids.length = MAX_TOKENS - 1;
   ids.push(sepId);
 
   const seq = ids.length;
@@ -115,9 +122,12 @@ async function fixText(text) {
   const data = logits.data;
   const parts = [words[0]];
   for (let gap = 0; gap < words.length - 1; gap++) {
-    const offset = lastSubtoken[gap] * numClasses;
-    let best = 0;
-    for (let c = 1; c < numClasses; c++) if (data[offset + c] > data[offset + best]) best = c;
+    let best = 1; // SPACE fallback for gaps whose left word was truncated away
+    if (lastSubtoken[gap] < seq - 1) {
+      const offset = lastSubtoken[gap] * numClasses;
+      best = 0;
+      for (let c = 1; c < numClasses; c++) if (data[offset + c] > data[offset + best]) best = c;
+    }
     parts.push(SEPARATORS[best], words[gap + 1]);
   }
   return { fixed: parts.join(""), note };

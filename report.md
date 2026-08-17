@@ -26,7 +26,7 @@ words split mid-line (`que\nries` → `queries`).
 # environment (Python 3.14, uv)
 uv sync
 
-# tests, lint, types (poe check = lint + typecheck + test, same as CI)
+# tests, lint, format, types (poe check = lint + format-check + typecheck + test, same as CI)
 uv run poe check
 
 # 1. data: stream + clean corpora into canonical documents (train/val/test JSONL)
@@ -126,8 +126,9 @@ gaps of the same inputs. Metrics (`src/newlinefix/metrics.py`):
 - **Pk / WindowDiff** — standard text-segmentation error rates over paragraph
   boundaries (lower is better; documents too short to probe are excluded, not
   scored as perfect);
-- **edit similarity** — 1 − char-edit-distance / length, computed exactly via a
-  per-character-boundary decomposition that stays valid under JOIN mistakes;
+- **edit similarity** — 1 − char-edit-distance / length, via a per-character-boundary
+  decomposition that stays valid under JOIN mistakes (a tight upper bound on the
+  exact distance; equal except in rare repeated-content cases);
 - **exact-match rate**, **words/sec throughput**, and **latency per document**.
 
 Everything is reproducible: `scripts/evaluate.py --seed 13` writes
@@ -150,7 +151,8 @@ The served encoder is the lr=1e-4 fine-tune selected by the learning-rate sweep 
 [Model exploration](#model-exploration). Training budgets were deliberately small
 (single epoch, ~6–16 minutes each on an Apple M4 Max via MPS): encoder 8k windows,
 scratch 30k windows. Validation macro-F1 scaled 0.53 → 0.78 when the encoder's data
-grew 2k → 8k windows, so there is clear headroom; the full corpus is ~260k windows.
+grew 2k → 8k windows, so there is clear headroom; the full corpus yields ~229k
+windows at the encoder's 180-word window size.
 (Words/s figures vary ±30% run-to-run with machine load. The corruption and splits
 are fully deterministic given `--seed`; retraining on different hardware reproduces
 quality to within noise rather than bit-for-bit — a reproducibility check on a
@@ -158,8 +160,10 @@ second machine landed at test macro-F1 0.8136 vs the committed 0.8148.)
 
 On the challenge's own example, the encoder reproduces the expected output almost
 exactly — heading isolated, paragraph break placed, `• bullet` on its own line, and
-`que\nries` repaired to `queries` (its one deviation: a blank line instead of a single
-newline after "ways:", the NEWLINE↔PARA confusion that dominates its residual errors).
+`que\nries` repaired to `queries`. Two deviations remain: a blank line instead of a
+single newline after "ways:" (the NEWLINE↔PARA confusion that dominates its residual
+errors), and `[...]` staying attached to `layer.` — unattainable under the gap
+framing, since `layer.[...]` is a single whitespace-delimited token in the input.
 Full per-model outputs: `results/eval_results.md`.
 
 ## Model exploration
@@ -186,7 +190,7 @@ example identically to the previous model.
 ### Distillation: encoder teacher → byte-BiLSTM student
 
 The fine-tuned encoder was frozen as a teacher and the 2.4M-param BiLSTM retrained
-with per-gap soft targets: `loss = (1−α)·CE(hard) + α·τ²·KL(student/τ ‖ teacher/τ)`
+with per-gap soft targets: `loss = (1−α)·CE(hard) + α·τ²·KL(teacher/τ ‖ student/τ)`
 with τ = 2 (`src/newlinefix/distill.py`; `scripts/train_scratch.py --teacher`).
 Same data budget as the scratch baseline (30k windows, 1 epoch).
 
@@ -209,9 +213,10 @@ hard-label term still anchors the decision boundary for the rare classes.
 
 `train_encoder.py --model-name` fine-tunes any HF token-classification backbone
 under the served recipe; four backbones spanning 14M–125M parameters trace the
-size/quality/latency frontier (full metrics: `results/explore-backbones/`). Words/s
-come from one eval run on an M4 MacBook Air — a different machine than the headline
-table's M4 Max — so only the relative ordering is meaningful.
+size/quality/latency frontier (full metrics: `results/explore-backbones/`). The whole
+sweep — including the (served) reference row — was retrained and evaluated on an M4
+MacBook Air for comparability, which is why that row reads 0.814 rather than the
+committed checkpoint's 0.815, and why words/s is not comparable to the headline table.
 
 | backbone | params | val macro-F1 | test macro-F1 | test break-F1 | test Pk | words/s |
 |---|---|---|---|---|---|---|

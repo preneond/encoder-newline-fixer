@@ -55,6 +55,8 @@ def main(
     repo_url = api.create_repo(
         repo_id, repo_type="space", space_sdk="static", private=private, exist_ok=True
     )
+    # create_repo only applies `private` at creation; make re-runs honor the flag too.
+    api.update_repo_settings(repo_id, repo_type="space", private=private)
     api.upload_file(
         repo_id=repo_id,
         repo_type="space",

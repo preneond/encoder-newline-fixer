@@ -59,7 +59,7 @@ Published model: **[preneond/newlinefix-encoder](https://huggingface.co/preneond
 2. **Authenticate** (either way):
 
    ```bash
-   uv run huggingface-cli login        # paste the token once; stored in ~/.cache/huggingface
+   uv run hf auth login                # paste the token once; stored in ~/.cache/huggingface
    # or, non-interactive (CI, docker):
    export HF_TOKEN=hf_...
    ```
