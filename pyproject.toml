@@ -10,12 +10,14 @@ requires-python = ">=3.14"
 dependencies = [
     "click>=8.2",
     "datasets>=5.0.1",
+    "fastapi>=0.141.1",
     "numpy>=2.5.2",
     "pydantic>=2.11",
     "rich>=14.0",
     "torch>=2.13.0",
     "tqdm>=4.70.0",
     "transformers>=5.15.0",
+    "uvicorn>=0.52",
 ]
 
 [build-system]
@@ -38,6 +40,7 @@ python = "./.venv"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28",
     "poethepoet>=0.37",
     "pytest>=9.1.1",
     "ruff>=0.16.3",
@@ -45,12 +48,23 @@ dev = [
     "ty>=0.0.72",
 ]
 
+# Linux (docker image, CI) gets CPU-only torch wheels: an order of magnitude
+# smaller than the default CUDA build; macOS keeps the PyPI build with MPS.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
 [tool.poe.tasks]
 lint = "ruff check src tests scripts ui"
 fix = ["_ruff_fix", "_ruff_format"]
 typecheck = "ty check src tests scripts"
 test = "pytest"
 check = ["lint", "typecheck", "test"]
+serve = "uvicorn newlinefix.api:app --host 0.0.0.0 --port 8000"
 streamlit = "streamlit run ui/streamlit_app.py"
 _ruff_fix = "ruff check --fix src tests scripts ui"
 _ruff_format = "ruff format src tests scripts ui"

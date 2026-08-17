@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.pytest_cache
+.ruff_cache
+.playwright-mcp
+data
+results
+docs
+tests
+ui
+scripts
+artifacts/*
+!artifacts/encoder
+__pycache__
+*.py[cod]
+.DS_Store
