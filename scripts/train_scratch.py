@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Train the from-scratch byte-level BiLSTM gap classifier.
 
 Manual training loop: weighted cross-entropy over logits gathered at gap byte
@@ -128,7 +127,7 @@ def save_artifacts(
 
 
 def write_training_log(out: Path, steps: list[dict], epochs: list[dict]) -> None:
-    """Loss/metric history consumed by the marimo walkthrough notebook."""
+    """Loss/metric history written alongside the checkpoint for later inspection."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "training_log.json").write_text(
         json.dumps({"steps": steps, "epochs": epochs}, indent=2) + "\n", encoding="utf-8"
@@ -284,7 +283,13 @@ def main() -> None:
             optimizer.step()
             scheduler.step()
             step += 1
-            running += float(loss.item())
+            loss_value = float(loss.item())
+            if not math.isfinite(loss_value):
+                raise SystemExit(
+                    f"non-finite training loss at step {step}; aborting instead of "
+                    "saving a corrupt checkpoint (check lr / device numerics)"
+                )
+            running += loss_value
             since_log += 1
             if step % args.log_every == 0:
                 lr_now = scheduler.get_last_lr()[0]

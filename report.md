@@ -37,9 +37,6 @@ uv run python scripts/train_scratch.py --data data/docs --out artifacts/scratch 
 # 3. evaluate all models on the held-out test split
 uv run python scripts/evaluate.py --models all --out results
 
-# interactive walkthrough (data prep -> training -> eval, with charts)
-uv run marimo edit notebooks/model_development.py
-
 # minimal UI
 uv run streamlit run ui/streamlit_app.py
 ```

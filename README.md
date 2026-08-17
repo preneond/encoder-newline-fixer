@@ -1,26 +1,21 @@
-# Applied ML Engineer Challenge
+# Newline Fixer
 
-![logo](img/logo.png)
+A machine-learning service that fixes newline placement in English text: paragraph
+breaks, line breaks before bullets and headings, and repairs of words split mid-line.
+Built as a solution to the [BottleCapAI](https://www.bottlecapai.com) Applied ML
+Engineer challenge.
 
-Hey there! Are you interested in LLMs? Do you like building real products, experimenting with neural networks, implementing different ideas and testing them out? Would you like to do that for a living? Then you're in the right place!
-This is an official test for people interested in joining [BottleCapAI](https://www.bottlecapai.com).
+Example — broken input:
 
----
-
-## Objective
-
-Design and implement a Machine Learning service capable of fixing newline placement in English natural language text. Develop a model,
-and a service with a HTTP API. You can choose any architecture and method of obtaining the model, and any Python framework for the HTTP API. 
-It is not necessary to aim for state-of-the-art performance, but the service should efficiently generate reasonable answers.
-
-Examples:  
 ```
 3.2.3 Applications of Attention
  in our Model The Transformer uses multi-head attention in three different ways: • In "encoder-decoder attention" layers,
  the que
 ries come from the previous decoder layer.[...]
-``` 
--> 
+```
+
+fixed output:
+
 ```
 3.2.3 Applications of Attention in our Model
 
@@ -29,49 +24,41 @@ The Transformer uses multi-head attention in three different ways:
 [...]
 ```
 
-For your solution, it is required to:
-- Implement an API with at least one endpoint that accepts a text input and returns a text with fixed newlines.
-- Provide a Dockerfile with the environment to run the service.
-- Write tests for the service.
-- Compute appropriate metrics for evaluating the performance of the model.
-- Provide a `report.md` with instructions on how to run the service, explaining your approach, decisions taken, and reporting the results.
-- [optional] Ideally, we would encourage you to provide us with a link to the service deployed, for instance on [Huggingface Spaces](https://huggingface.co/spaces), with a minimal UI
-for testing the model (can be in [Streamlit](https://github.com/streamlit/streamlit) or basic HTML + js). Provide the space link in your report.
+The task is framed as **4-class gap classification** between consecutive words
+(`JOIN` / `SPACE` / `NEWLINE` / `PARA`), so the model can only rewrite whitespace —
+the output words are guaranteed identical to the input. The served model is a
+fine-tuned `distilroberta-base` token classifier; it is compared against a
+from-scratch byte-level BiLSTM and two non-neural baselines. Full methodology,
+experiments, and results: **[report.md](report.md)**.
 
-In case you need access to GPUs for developing your model, we recommend using free online solutions, such as [Google Colab](https://colab.research.google.com/),
-[Modal notebooks](https://modal.com/products/notebooks), or [Kaggle kernels](https://www.kaggle.com/kernels). 
-It is fine to focus on smaller models in case of any hardware-related difficulties, as we are not expecting SOTA performance.
+## Quickstart
 
----
-
-## What's the point?
-
-We are interested in your drive, interest in ML and ability to create useful working products with it, adapting models to certain tasks, 
-skill in developing, evaluating, monitoring, and deploying production ready ML services, and general programming skills.
-
----
-
-## Submission
-
-To submit your results, run:
 ```bash
-git bundle create <first name>-<last name>.bundle --all
+uv sync                                        # environment (Python 3.12, uv)
+uv run pytest                                  # tests
+uv run streamlit run ui/streamlit_app.py       # interactive UI (uses artifacts/)
 ```
-Then send us your .bundle file to hey(at)bottlecapai.com with subject in format: \<first name\>-\<last name\>-applied-ml-test\>.
 
-At this moment, we are interested mainly in candidates willing to relocate to Prague and authorized to work in the EU. (If you are an exceptional fit, we are happy to discuss possible support options).
+Reproducing the full pipeline (data → training → evaluation) is documented in
+[report.md → How to run](report.md#how-to-run).
 
----
-## 📌 About BottleCapAI
+## Repository layout
 
-At **BottleCapAI**, we’re making large language models **radically more efficient** — aiming for **100× improvements** over today’s approaches. 🚀  
+| Path | What's there |
+|---|---|
+| `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpora.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), models (`models/`) |
+| `scripts/` | CLIs: `prepare_data.py` (build corpus), `train_encoder.py` (fine-tune a pretrained encoder), `train_scratch.py` (byte-BiLSTM, optional distillation), `evaluate.py` (compare all models on the held-out test split) |
+| `tests/` | 106 unit/property tests (`uv run pytest`) |
+| `ui/` | Minimal Streamlit UI: model picker, before/after view, latency readout |
+| `artifacts/` | Trained model checkpoints (`encoder` is the served model) |
+| `results/` | Evaluation reports: headline `eval_results.{json,md}`, exploration sweeps in `exploration_results.{json,md}` |
+| `report.md` | Approach, decisions, experiments, and results |
+| `data/` | Generated corpus (gitignored; regenerate with `scripts/prepare_data.py`) |
 
-### 👥 Founders
-- Tomas Mikolov – creator of *word2vec*, pioneer of neural language models.  
-- Jaroslav Beck – co-founder of *Beat Games* (*Beat Saber*, 10M+ copies sold, acquired by Meta).  
-- David Herel – creator of Thinking Tokens, co-founder of an AI trading startup, and Amazon Alexa Prize finalist.
+## Quality gates
 
-### 🌍 Our vision
-Training frontier LLMs costs **tens of millions** today. Our new algorithms already cut that by **~50%** — and we’re just getting started. We’re building a European hub to push AI forward through **algorithms, not brute force**.  
- 
-📧 **hey(at)bottlecapai.com** · 🌐 [bottlecapai.com](https://www.bottlecapai.com)  
+```bash
+uv run ruff check src tests scripts ui
+uv run ty check src tests scripts
+uv run pytest
+```

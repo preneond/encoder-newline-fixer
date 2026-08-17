@@ -15,7 +15,6 @@ would break alignment.
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import math
 import random
@@ -47,6 +46,9 @@ from newlinefix.metrics import (
     pk,
     windowdiff,
 )
+from newlinefix.models.baseline import AllSpaceBaseline, RuleBaseline
+from newlinefix.models.encoder import EncoderGapPredictor
+from newlinefix.models.scratch import ScratchGapPredictor
 from newlinefix.predict import GapPredictor, fix_text
 
 # The broken input example from README.md, verbatim (first ``` fenced block).
@@ -64,73 +66,38 @@ WARMUP_WORDS = ["Warm", "up", "call", "so", "lazy", "init", "is", "not", "timed.
 Example = tuple[str, list[str], list[int]]
 
 
-def _make_majority(_args: argparse.Namespace) -> GapPredictor:
-    from newlinefix.models.baseline import AllSpaceBaseline
-
-    return AllSpaceBaseline()
-
-
-def _make_rules(_args: argparse.Namespace) -> GapPredictor:
-    from newlinefix.models.baseline import RuleBaseline
-
-    return RuleBaseline()
+#: --extra KIND values mapped to the loader for that kind of artifact dir.
+LOADERS: dict[str, Callable[[str], GapPredictor]] = {
+    "encoder": EncoderGapPredictor.load,
+    "scratch": ScratchGapPredictor.load,
+}
 
 
-def _load_trained(module_name: str, artifact_dir: str) -> GapPredictor:
-    """Load a trained predictor from its module by convention.
-
-    Prefers a module-level ``load_predictor(dir)``; otherwise any GapPredictor
-    subclass exposing a callable ``load(dir)``. Raises if nothing loadable is
-    found — the caller treats that as "model unavailable, skip".
-    """
+def load_trained(kind: str, artifact_dir: str) -> GapPredictor:
+    """Load a trained predictor, failing clearly when artifacts are missing."""
     if not Path(artifact_dir).exists():
         raise FileNotFoundError(f"artifact directory not found: {artifact_dir}")
-    module = importlib.import_module(module_name)
-    loader = getattr(module, "load_predictor", None)
-    if callable(loader):
-        return loader(artifact_dir)
-    for name in dir(module):
-        obj = getattr(module, name)
-        if (
-            isinstance(obj, type)
-            and issubclass(obj, GapPredictor)
-            and obj is not GapPredictor
-            and callable(getattr(obj, "load", None))
-        ):
-            return obj.load(artifact_dir)  # type: ignore[attr-defined]
-    raise RuntimeError(f"no load_predictor() or GapPredictor.load() found in {module_name}")
-
-
-def _make_encoder(args: argparse.Namespace) -> GapPredictor:
-    return _load_trained("newlinefix.models.encoder", args.encoder_dir)
-
-
-def _make_scratch(args: argparse.Namespace) -> GapPredictor:
-    return _load_trained("newlinefix.models.scratch", args.scratch_dir)
+    return LOADERS[kind](artifact_dir)
 
 
 REGISTRY: dict[str, Callable[[argparse.Namespace], GapPredictor]] = {
-    "majority": _make_majority,
-    "rules": _make_rules,
-    "encoder": _make_encoder,
-    "scratch": _make_scratch,
+    "majority": lambda _args: AllSpaceBaseline(),
+    "rules": lambda _args: RuleBaseline(),
+    "encoder": lambda args: load_trained("encoder", args.encoder_dir),
+    "scratch": lambda args: load_trained("scratch", args.scratch_dir),
 }
-
-#: --extra KIND values mapped to the module whose predictor loads the artifacts.
-KIND_MODULES = {"encoder": "newlinefix.models.encoder", "scratch": "newlinefix.models.scratch"}
 
 
 def register_extra(spec: str) -> str:
     """Register an '--extra NAME=KIND:DIR' model in REGISTRY; returns NAME."""
     name, eq, rest = spec.partition("=")
     kind, colon, directory = rest.partition(":")
-    if not (name and eq and colon and directory) or kind not in KIND_MODULES:
+    if not (name and eq and colon and directory) or kind not in LOADERS:
         raise SystemExit(
             f"bad --extra spec {spec!r}; expected NAME=KIND:DIR with KIND one of "
-            + "|".join(KIND_MODULES)
+            + "|".join(LOADERS)
         )
-    module = KIND_MODULES[kind]
-    REGISTRY[name] = lambda _args: _load_trained(module, directory)
+    REGISTRY[name] = lambda _args: load_trained(kind, directory)
     return name
 
 
@@ -289,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     for name in names:
         try:
             predictor = REGISTRY[name](args)
-        except Exception as exc:  # missing artifacts/deps must never block baselines
+        except Exception as exc:  # a missing artifact dir must never block the other models
             print(f"warning: skipping model '{name}': {exc}", file=sys.stderr)
             continue
         results.append(evaluate_model(name, predictor, examples))

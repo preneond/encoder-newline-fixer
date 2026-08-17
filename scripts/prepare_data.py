@@ -5,7 +5,7 @@ deterministically by content hash, and writes {out}/train.jsonl, val.jsonl,
 test.jsonl via newlinefix.data.write_documents.
 
 Usage:
-    uv run --no-sync python scripts/prepare_data.py --out data/docs
+    uv run python scripts/prepare_data.py --out data/docs
 """
 
 from __future__ import annotations

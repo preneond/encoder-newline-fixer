@@ -153,7 +153,7 @@ def evaluate(
 
 
 def write_training_log(out: Path, steps: list[dict], epochs: list[dict]) -> None:
-    """Loss/metric history consumed by the marimo walkthrough notebook."""
+    """Loss/metric history written alongside the checkpoint for later inspection."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "training_log.json").write_text(
         json.dumps({"steps": steps, "epochs": epochs}, indent=2) + "\n", encoding="utf-8"
@@ -190,6 +190,8 @@ def main() -> None:
     val_windows = load_training_windows(
         args.data / "val.jsonl", args.max_words, args.seed + 1, limit=args.val_windows
     )
+    if not train_windows or not val_windows:
+        raise SystemExit(f"empty train or val windows loaded from {args.data}")
     print(f"train windows: {len(train_windows)}  val windows: {len(val_windows)}  device: {device}")
 
     tokenizer = cast(
@@ -262,7 +264,13 @@ def main() -> None:
             optimizer.step()
             scheduler.step()
             step += 1
-            running_loss += float(loss.item())
+            loss_value = float(loss.item())
+            if not math.isfinite(loss_value):
+                raise SystemExit(
+                    f"non-finite training loss at step {step}; aborting instead of "
+                    "saving a corrupt checkpoint (check lr / device numerics)"
+                )
+            running_loss += loss_value
             running_n += 1
             if step % args.log_every == 0:
                 pbar.set_postfix(
