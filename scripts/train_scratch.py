@@ -18,10 +18,12 @@ import typer
 from pydantic import BaseModel
 from rich.console import Console
 from torch import Tensor, nn
+from transformers import get_cosine_schedule_with_warmup
 
-from newlinefix.data import Window, load_training_windows
+from newlinefix.data import Window, class_weights, load_training_windows
 from newlinefix.distill import EncoderTeacher, distillation_loss
 from newlinefix.gaps import GAP_LABELS, JOIN, NEWLINE, NUM_GAP_CLASSES, PARA
+from newlinefix.metrics import accuracy, confusion_matrix, macro_f1, per_class_prf
 from newlinefix.models.scratch import (
     MAX_BYTES,
     CharBiLSTM,
@@ -128,37 +130,14 @@ def gather_gap_logits(logits: Tensor, positions: Tensor) -> Tensor:
     return logits.gather(1, index)
 
 
-def class_weights(windows: list[Window]) -> Tensor:
-    """w_c = clip((N_total / (4 * count_c)) ** 0.5, 0.25, 20.0)."""
-    counts = np.zeros(NUM_GAP_CLASSES, dtype=np.float64)
-    for _, labels in windows:
-        counts += np.bincount(labels, minlength=NUM_GAP_CLASSES)
-    total = counts.sum()
-    weights = np.sqrt(total / (NUM_GAP_CLASSES * np.maximum(counts, 1.0)))
-    return torch.tensor(np.clip(weights, 0.25, 20.0), dtype=torch.float32)
-
-
 def prf_metrics(preds: np.ndarray, labels: np.ndarray) -> dict[str, Any]:
     """Masked accuracy plus per-class precision/recall/F1 and structural macro-F1."""
-    per_class: dict[str, dict[str, float | int]] = {}
-    f1_by_class: list[float] = []
-    for cls_id, name in enumerate(GAP_LABELS):
-        tp = float(np.sum((preds == cls_id) & (labels == cls_id)))
-        fp = float(np.sum((preds == cls_id) & (labels != cls_id)))
-        fn = float(np.sum((preds != cls_id) & (labels == cls_id)))
-        precision = tp / (tp + fp) if tp + fp else 0.0
-        recall = tp / (tp + fn) if tp + fn else 0.0
-        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-        per_class[name] = {
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-            "support": int(np.sum(labels == cls_id)),
-        }
-        f1_by_class.append(f1)
-    accuracy = float(np.mean(preds == labels)) if labels.size else 0.0
-    macro_f1 = float(np.mean([f1_by_class[c] for c in STRUCTURAL_CLASSES]))
-    return {"accuracy": accuracy, "macro_f1_structural": macro_f1, "per_class": per_class}
+    cm = confusion_matrix(labels.tolist(), preds.tolist())
+    return {
+        "accuracy": accuracy(cm),
+        "macro_f1_structural": macro_f1(cm, STRUCTURAL_CLASSES),
+        "per_class": per_class_prf(cm),
+    }
 
 
 def evaluate(model: CharBiLSTM, batches: list[Batch], device: torch.device) -> dict[str, Any]:
@@ -280,14 +259,11 @@ def main(
     total_steps = max(1, cfg.epochs * steps_per_epoch)
     warmup_steps = max(1, int(cfg.warmup_frac * total_steps))
 
-    def lr_lambda(step: int) -> float:
-        """Linear warmup to the peak lr, then cosine decay to zero."""
-        if step < warmup_steps:
-            return (step + 1) / warmup_steps
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-        return 0.5 * (1.0 + math.cos(math.pi * min(progress, 1.0)))
-
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    # Linear warmup, then cosine decay to zero. The stock helper warms up as
+    # step/warmup_steps (first step at lr 0) where the previous hand-written lambda
+    # used (step+1)/warmup_steps — a one-step offset, so retrained checkpoints are
+    # not bit-identical to ones trained before this change.
+    scheduler = get_cosine_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
     val_batches = [
         collate(val_set[i : i + cfg.batch_size]) for i in range(0, len(val_set), cfg.batch_size)
@@ -365,7 +341,7 @@ def main(
         for name, m in metrics["per_class"].items():
             console.print(
                 f"  {name:<8} P {m['precision']:.3f} R {m['recall']:.3f} "
-                f"F1 {m['f1']:.3f} n={m['support']}"
+                f"F1 {m['f1']:.3f} n={int(m['support'])}"
             )
         log_epochs.append(
             {

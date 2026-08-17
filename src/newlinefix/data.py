@@ -9,10 +9,26 @@ import random
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+import numpy as np
+import torch
+
 from newlinefix.corruption import CorruptionConfig, make_example
-from newlinefix.gaps import text_to_gaps
+from newlinefix.gaps import NUM_GAP_CLASSES, text_to_gaps
 
 Window = tuple[list[str], list[int]]
+
+
+def class_weights(windows: list[Window]) -> torch.Tensor:
+    """Loss weights per gap class: w_c = clip(sqrt(N / (4 * count_c)), 0.25, 20).
+
+    Upweights the rare structural classes (JOIN especially) and damps SPACE,
+    which is ~94% of gaps. Shared by both trainers.
+    """
+    counts = np.zeros(NUM_GAP_CLASSES, dtype=np.float64)
+    for _, labels in windows:
+        counts += np.bincount(labels, minlength=NUM_GAP_CLASSES)
+    weights = np.sqrt(counts.sum() / (NUM_GAP_CLASSES * np.maximum(counts, 1.0)))
+    return torch.tensor(np.clip(weights, 0.25, 20.0), dtype=torch.float32)
 
 
 def read_documents(path: Path | str) -> Iterator[str]:

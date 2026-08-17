@@ -18,7 +18,6 @@ import torch
 import typer
 from pydantic import BaseModel
 from rich.console import Console
-from torch.optim.lr_scheduler import LambdaLR
 from tqdm import tqdm
 from transformers import (
     AutoModelForTokenClassification,
@@ -26,10 +25,12 @@ from transformers import (
     BatchEncoding,
     PreTrainedModel,
     PreTrainedTokenizerBase,
+    get_linear_schedule_with_warmup,
 )
 
-from newlinefix.data import Window, load_training_windows
+from newlinefix.data import Window, class_weights, load_training_windows
 from newlinefix.gaps import GAP_LABELS, JOIN, NEWLINE, NUM_GAP_CLASSES, PARA
+from newlinefix.metrics import accuracy, confusion_matrix, macro_f1, per_class_prf
 from newlinefix.models.encoder import EncoderGapPredictor, last_subtoken_positions, pick_device
 
 STRUCTURAL_CLASSES = (JOIN, NEWLINE, PARA)
@@ -87,33 +88,6 @@ def encode_batch(
     return enc, labels
 
 
-def class_weights(windows: list[Window]) -> torch.Tensor:
-    """w_c = clip(sqrt(N / (4 * count_c)), 0.25, 20): upweights rare JOIN, damps SPACE."""
-    counts = np.zeros(NUM_GAP_CLASSES, dtype=np.float64)
-    for _, gaps in windows:
-        for gap in gaps:
-            counts[gap] += 1
-    weights = np.sqrt(counts.sum() / (NUM_GAP_CLASSES * np.maximum(counts, 1.0)))
-    return torch.tensor(np.clip(weights, 0.25, 20.0), dtype=torch.float32)
-
-
-def prf_per_class(
-    y_true: np.ndarray, y_pred: np.ndarray, n_classes: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    precision = np.zeros(n_classes)
-    recall = np.zeros(n_classes)
-    f1 = np.zeros(n_classes)
-    for c in range(n_classes):
-        tp = float(np.sum((y_pred == c) & (y_true == c)))
-        pred_c = float(np.sum(y_pred == c))
-        true_c = float(np.sum(y_true == c))
-        precision[c] = tp / pred_c if pred_c else 0.0
-        recall[c] = tp / true_c if true_c else 0.0
-        denom = precision[c] + recall[c]
-        f1[c] = 2 * precision[c] * recall[c] / denom if denom else 0.0
-    return precision, recall, f1
-
-
 def evaluate(
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizerBase,
@@ -134,15 +108,16 @@ def evaluate(
             preds.append(batch_preds[mask].numpy())
     y_true = np.concatenate(trues)
     y_pred = np.concatenate(preds)
-    precision, recall, f1 = prf_per_class(y_true, y_pred, NUM_GAP_CLASSES)
+    cm = confusion_matrix(y_true.tolist(), y_pred.tolist())
+    per_class = per_class_prf(cm)
     metrics: dict[str, float] = {
-        "accuracy": float(np.mean(y_true == y_pred)),
-        "macro_f1_structural": float(np.mean([f1[c] for c in STRUCTURAL_CLASSES])),
+        "accuracy": accuracy(cm),
+        "macro_f1_structural": macro_f1(cm, STRUCTURAL_CLASSES),
     }
-    for c, name in enumerate(GAP_LABELS):
-        metrics[f"precision_{name}"] = float(precision[c])
-        metrics[f"recall_{name}"] = float(recall[c])
-        metrics[f"f1_{name}"] = float(f1[c])
+    for name, m in per_class.items():
+        metrics[f"precision_{name}"] = m["precision"]
+        metrics[f"recall_{name}"] = m["recall"]
+        metrics[f"f1_{name}"] = m["f1"]
     return metrics
 
 
@@ -265,14 +240,9 @@ def main(
     steps_per_epoch = math.ceil(len(train_set) / cfg.batch_size)
     total_steps = steps_per_epoch * cfg.epochs
     warmup_steps = max(1, int(total_steps * cfg.warmup_frac))
-
-    def lr_lambda(step: int) -> float:
-        """Linear warmup to the peak lr, then linear decay to zero."""
-        if step < warmup_steps:
-            return step / warmup_steps
-        return max(0.0, (total_steps - step) / max(1, total_steps - warmup_steps))
-
-    scheduler = LambdaLR(optimizer, lr_lambda)
+    # Linear warmup to the peak lr, then linear decay to zero (same math as the
+    # previous hand-written lambda).
+    scheduler = get_linear_schedule_with_warmup(optimizer, warmup_steps, total_steps)
 
     rng = random.Random(cfg.seed)
     log_steps: list[dict] = []
