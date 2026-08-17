@@ -146,7 +146,7 @@ Full per-model outputs: `results/eval_results.md`.
 
 ## Model exploration
 
-Beyond the headline comparison, two further axes were explored under the same
+Beyond the headline comparison, three further axes were explored under the same
 protocol (merged table: `results/exploration_results.md`). Val is validation
 macro-F1 over {JOIN, NEWLINE, PARA}; test metrics are on the held-out 120-doc split.
 
@@ -187,17 +187,48 @@ targets carry inter-class structure a hard label can't ("this gap is NEWLINE-or-
 certainly not SPACE"). Going nearly all-soft (α = 0.9) gives the gain back — the
 hard-label term still anchors the decision boundary for the rare classes.
 
+### Backbone sweep (8k windows, 1 epoch, lr=1e-4)
+
+`train_encoder.py --model-name` fine-tunes any HF token-classification backbone
+under the served recipe; four backbones spanning 14M–125M parameters trace the
+size/quality/latency frontier (full metrics: `results/explore-backbones/`). Words/s
+come from one eval run on an M4 MacBook Air — a different machine than the headline
+table's M4 Max — so only the relative ordering is meaningful.
+
+| backbone | params | val macro-F1 | test macro-F1 | test break-F1 | test Pk | words/s |
+|---|---|---|---|---|---|---|
+| electra-small-discriminator | 14M | 0.649 | 0.702 | 0.665 | 0.282 | 4,727 |
+| distilbert-base-cased | 66M | 0.723 | 0.763 | 0.710 | 0.278 | 1,974 |
+| **distilroberta-base (served)** | **82M** | **0.783** | **0.814** | **0.769** | **0.229** | 2,044 |
+| roberta-base\* | 125M | 0.817 | 0.825 | 0.783 | 0.209 | 1,039 |
+
+Quality scales monotonically with size, but with sharply diminishing returns around
+the served model: roberta-base buys +1.1 test macro-F1 over distilroberta for 1.5×
+the parameters and ~2× the latency, while electra-small gives up 11 points for its
+6× smaller footprint. electra-small is also *uncased*, and it pays exactly where
+capitalization carries the signal: NEWLINE (headings, bullets) is its weakest class
+relative to the cased distilbert (F1 0.685 vs 0.772). **No backbone replaces the
+served model** — distilroberta-base keeps the best quality-per-millisecond, and
+roberta-base's margin is well short of the "clearly wins on quality" bar that
+promoted the lr=1e-4 fine-tune.
+
+\* roberta-base could not be fine-tuned on Apple MPS (torch 2.13.0): training
+collapsed to NaN within 50 steps at every learning rate tried — loss and gradients
+finite but weights NaN after the AdamW step, with `clip_grad_norm_` returning
+impossibly small total norms; per-step syncs masked the failure, implicating an
+async command-buffer race in the MPS backend. The row above was trained on CPU with
+the identical recipe (~2 h). The smaller backbones train on MPS without issue, and
+both trainers now abort on a non-finite loss instead of saving a corrupt checkpoint.
+
 ### What each technique is for
 
 - **Fine-tuned encoder, lr-swept** — the quality/throughput sweet spot; the served model.
 - **Distilled BiLSTM** — for targets that can't take an 82M-param transformer
   (CPU-only edge, strict memory): distillation upgrades the tiny model for free at
   inference time. The same recipe would distill into a smaller transformer as well.
-- **Backbone sweep** — `train_encoder.py --model-name` fine-tunes any HF token-
-  classification backbone and `evaluate.py --extra NAME=encoder:DIR` scores it;
-  candidates staged for comparison are `electra-small-discriminator` (14M),
-  `distilbert-base-cased` (66M) and `roberta-base` (125M) to trace the
-  size/quality/latency frontier around the served 82M model.
+- **Backbone sweep** — maps the size/quality/latency frontier around the served
+  model: quality tracks parameter count, but nothing beats distilroberta-base on
+  quality-per-millisecond, so it stays the served backbone.
 
 ## Conclusion
 
@@ -224,7 +255,10 @@ token-classification head. It was compared against a from-scratch byte-level BiL
 Two cheap wins came out of [Model exploration](#model-exploration): a learning-rate
 sweep moved the encoder 0.789 → 0.815 at zero extra cost, and knowledge distillation
 from the encoder teacher moved the tiny BiLSTM 0.632 → 0.675 at identical size and
-speed. The from-scratch model remains a respectable result for 2.4M parameters and
+speed. A backbone sweep (14M–125M params) then confirmed the serving choice: quality
+tracks size, but roberta-base tops distilroberta by only +1.1 macro-F1 at twice the
+latency, so the 82M model keeps the best quality-per-millisecond and stays in
+service. The from-scratch model remains a respectable result for 2.4M parameters and
 minutes of training — but on this task, at this data scale, **transfer learning
 dominates training from scratch on quality, data-efficiency, and (at batch-1 GPU
 inference) even speed.** The lr-swept encoder is therefore the model behind the
@@ -232,7 +266,7 @@ service.
 
 ## Engineering notes
 
-- **Quality gates**: 101 unit/property tests (`pytest`), `ruff` lint + format, `ty`
+- **Quality gates**: 106 unit/property tests (`pytest`), `ruff` lint + format, `ty`
   type checking. Round-trip and label-alignment invariants are property-tested; the
   windowed-stitching logic is tested against an index oracle across window sizes.
 - **Adversarial review**: before training, the codebase went through a 53-agent
