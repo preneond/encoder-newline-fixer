@@ -48,7 +48,7 @@ docker build -t newlinefix . && docker run -p 8000:8000 newlinefix
 docker compose up
 
 # minimal UI
-uv run streamlit run ui/streamlit_app.py
+uv run poe streamlit
 ```
 
 ## Approach

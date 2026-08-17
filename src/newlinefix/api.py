@@ -5,7 +5,7 @@ POST /fix accepts raw text and returns the same words with re-placed whitespace
 loaded once, lazily, from NEWLINEFIX_MODEL_DIR (default: artifacts/encoder);
 tests inject a lightweight predictor via FastAPI dependency overrides instead.
 
-Run locally:  uv run poe serve  (uvicorn newlinefix.api:app)
+Run locally:  uv run poe serve  (scripts/serve.py picks the model, then runs uvicorn)
 """
 
 import os
