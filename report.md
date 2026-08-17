@@ -39,7 +39,8 @@ uv run python scripts/evaluate.py --models all --out results
 # model source everywhere a local artifact dir does, incl. NEWLINEFIX_MODEL_DIR)
 uv run poe publish --repo-id <user>/newlinefix-encoder
 
-# HTTP API (POST /fix {"text": ...} -> fixed text; serves artifacts/encoder)
+# HTTP API (POST /fix {"text": ...} -> fixed text); --model picks any artifact
+# dir or HF Hub repo id, --list-models shows the servable local checkpoints
 uv run poe serve
 # ... or containerized (CPU-only torch; bakes the trained model into the image)
 docker build -t newlinefix . && docker run -p 8000:8000 newlinefix

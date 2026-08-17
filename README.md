@@ -38,7 +38,8 @@ experiments, and results: **[report.md](report.md)** · interactive walkthrough:
 ```bash
 uv sync                                        # environment (Python 3.14, uv)
 uv run poe test                                # tests
-uv run poe serve                               # HTTP API on :8000 (uses artifacts/encoder)
+uv run poe serve                               # HTTP API on :8000 (--model picks the checkpoint,
+                                               #   --list-models shows what's servable)
 uv run poe streamlit                           # interactive UI (uses artifacts/)
 ```
 
@@ -74,9 +75,12 @@ A published repo id works everywhere a local artifact dir does —
    metrics table. Then serve straight from the Hub, no local model files needed:
 
    ```bash
-   NEWLINEFIX_MODEL_DIR=<user>/newlinefix-encoder uv run poe serve
+   uv run poe serve --model <user>/newlinefix-encoder
    curl -X POST localhost:8000/fix -H 'Content-Type: application/json' -d '{"text": "que\nries"}'
    ```
+
+   (In Docker/compose the same choice is made with the `NEWLINEFIX_MODEL_DIR` env
+   var — the CLI flag is a front-end that sets it.)
 
 Re-running `poe publish` pushes a new revision to the same repo (uploads are
 commits on the Hub, so the model is versioned for free).

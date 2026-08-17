@@ -108,7 +108,7 @@ def main(
         commit_message="Model card",
     )
     console.print(f"published [bold]{artifact_dir}[/] to {repo_url}")
-    console.print(f"serve it directly: NEWLINEFIX_MODEL_DIR={repo_id} uv run poe serve")
+    console.print(f"serve it directly: uv run poe serve --model {repo_id}")
 
 
 if __name__ == "__main__":
