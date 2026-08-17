@@ -17,7 +17,8 @@ REPO = Path(__file__).resolve().parent.parent
 TINY_MODEL = "sshleifer/tiny-distilroberta-base"
 
 
-def load_train_module() -> ModuleType:
+@pytest.fixture(scope="module")
+def train_module() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "train_encoder", REPO / "scripts" / "train_encoder.py"
     )
@@ -43,8 +44,8 @@ class TestLastSubtokenPositions:
 
 
 class TestGapLabelTensor:
-    def test_labels_land_on_last_subtoken_of_left_word(self) -> None:
-        mod = load_train_module()
+    def test_labels_land_on_last_subtoken_of_left_word(self, train_module: ModuleType) -> None:
+        mod = train_module
         word_id_rows: list[list[int | None]] = [
             [None, 0, 0, 1, None],  # w0 split into two subtokens
             [None, 0, 1, None, None],  # shorter row, padded
@@ -55,8 +56,8 @@ class TestGapLabelTensor:
         assert labels[0].tolist() == [-100, -100, NEWLINE, -100, -100]
         assert labels[1].tolist() == [-100, PARA, -100, -100, -100]
 
-    def test_truncated_left_word_gets_no_label(self) -> None:
-        mod = load_train_module()
+    def test_truncated_left_word_gets_no_label(self, train_module: ModuleType) -> None:
+        mod = train_module
         # 3 words but word 2 truncated: gap 1 (left word 1) still labeled,
         # a hypothetical gap with truncated left word is skipped.
         word_id_rows: list[list[int | None]] = [[None, 0, 1, None]]

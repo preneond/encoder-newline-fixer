@@ -265,7 +265,7 @@ service.
 
 ## Engineering notes
 
-- **Quality gates**: 106 unit/property tests (`pytest`), `ruff` lint + format, `ty`
+- **Quality gates**: 119 unit/property tests (`pytest`), `ruff` lint + format, `ty`
   type checking. Round-trip and label-alignment invariants are property-tested; the
   windowed-stitching logic is tested against an index oracle across window sizes.
 - **Adversarial review**: before training, the codebase went through a 53-agent

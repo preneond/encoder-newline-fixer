@@ -77,31 +77,31 @@ def test_confusion_matrix_and_prf_hand_case() -> None:
     assert macro_f1(cm, [0, 1, 2]) == pytest.approx((2 / 3 + 1 / 2 + 2 / 3) / 3)
 
 
-def test_length_mismatch_raises() -> None:
+@pytest.mark.parametrize("metric", [confusion_matrix, break_prf, pk, windowdiff])
+def test_length_mismatch_raises(metric) -> None:
     with pytest.raises(ValueError):
-        confusion_matrix([0, 1], [0])
-    with pytest.raises(ValueError):
-        break_prf([0, 1], [0])
-    with pytest.raises(ValueError):
-        pk([0, 1], [0])
-    with pytest.raises(ValueError):
-        windowdiff([0, 1], [0])
+        metric([0, 1], [0])
 
 
-def test_edit_similarity_hand_cases() -> None:
-    # One SPACE vs NEWLINE substitution: distance 1, max length 3.
-    assert edit_similarity("a b", "a\nb") == pytest.approx(1 - 1 / 3)
-    # SPACE vs PARA: substitute + insert = 2, max length 4.
-    assert edit_similarity("a b", "a\n\nb") == pytest.approx(1 - 2 / 4)
-    # NEWLINE vs PARA: one insertion, max length 4.
-    assert edit_similarity("a\nb", "a\n\nb") == pytest.approx(1 - 1 / 4)
-    assert edit_similarity("", "") == 1.0
-    # Word sequences differ (missed JOIN) but the char streams match: the boundary
-    # decomposition still applies — one ''-vs-' ' boundary, max length 8.
-    ratio = edit_similarity("que ries", "queries")
-    assert ratio == pytest.approx(1 - 1 / 8)
-    # Non-canonical whitespace still classifies per gap: "a \n b" ~ "a\nb".
-    assert edit_similarity("a \n b", "a\nb") == 1.0
+@pytest.mark.parametrize(
+    ("pred", "true", "expected"),
+    [
+        # One SPACE vs NEWLINE substitution: distance 1, max length 3.
+        pytest.param("a b", "a\nb", 1 - 1 / 3, id="space-vs-newline"),
+        # SPACE vs PARA: substitute + insert = 2, max length 4.
+        pytest.param("a b", "a\n\nb", 1 - 2 / 4, id="space-vs-para"),
+        # NEWLINE vs PARA: one insertion, max length 4.
+        pytest.param("a\nb", "a\n\nb", 1 - 1 / 4, id="newline-vs-para"),
+        pytest.param("", "", 1.0, id="both-empty"),
+        # Word sequences differ (missed JOIN) but the char streams match: the boundary
+        # decomposition still applies — one ''-vs-' ' boundary, max length 8.
+        pytest.param("que ries", "queries", 1 - 1 / 8, id="missed-join"),
+        # Non-canonical whitespace still classifies per gap: "a \n b" ~ "a\nb".
+        pytest.param("a \n b", "a\nb", 1.0, id="non-canonical-whitespace"),
+    ],
+)
+def test_edit_similarity_hand_cases(pred: str, true: str, expected: float) -> None:
+    assert edit_similarity(pred, true) == pytest.approx(expected)
 
 
 def test_pk_windowdiff_hand_case() -> None:

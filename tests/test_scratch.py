@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 import torch
 
 from newlinefix.data import write_documents
@@ -22,8 +23,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TRAIN_SCRIPT = REPO_ROOT / "scripts" / "train_scratch.py"
 
 
-def tiny_predictor(seed: int = 0) -> ScratchGapPredictor:
-    torch.manual_seed(seed)
+@pytest.fixture
+def tiny_predictor() -> ScratchGapPredictor:
+    torch.manual_seed(0)
     model = CharBiLSTM(embed_size=8, hidden_size=16, num_layers=1, dropout=0.0)
     return ScratchGapPredictor(model, device="cpu")
 
@@ -52,8 +54,8 @@ def test_gap_byte_positions_degenerate() -> None:
     assert gap_byte_positions(["only"]) == []
 
 
-def test_untrained_predict_window_shape_and_range() -> None:
-    predictor = tiny_predictor()
+def test_untrained_predict_window_shape_and_range(tiny_predictor: ScratchGapPredictor) -> None:
+    predictor = tiny_predictor
     words = [f"word{i}" for i in range(30)] + ["•", "café"]
     labels = predictor.predict_window(words)
     assert len(labels) == len(words) - 1
@@ -61,8 +63,10 @@ def test_untrained_predict_window_shape_and_range() -> None:
     assert predictor.predict_window(["single"]) == []
 
 
-def test_predict_window_beyond_byte_cap_falls_back_to_space() -> None:
-    predictor = tiny_predictor()
+def test_predict_window_beyond_byte_cap_falls_back_to_space(
+    tiny_predictor: ScratchGapPredictor,
+) -> None:
+    predictor = tiny_predictor
     words = ["a" * 30 for _ in range(150)]  # ~4.6 KB, well past MAX_BYTES
     positions = gap_byte_positions(words)
     labels = predictor.predict_window(words)
@@ -72,8 +76,8 @@ def test_predict_window_beyond_byte_cap_falls_back_to_space() -> None:
     assert all(lab == SPACE for lab in over_cap)
 
 
-def test_predict_windows_batched() -> None:
-    predictor = tiny_predictor()
+def test_predict_windows_batched(tiny_predictor: ScratchGapPredictor) -> None:
+    predictor = tiny_predictor
     w1 = ["alpha", "beta", "gamma", "delta"]
     w2 = [f"tok{i}" for i in range(12)]
     w3 = ["x"]

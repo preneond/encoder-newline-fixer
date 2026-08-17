@@ -50,7 +50,7 @@ Reproducing the full pipeline (data → training → evaluation) is documented i
 |---|---|
 | `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpora.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), models (`models/`) |
 | `scripts/` | CLIs: `prepare_data.py` (build corpus), `train_encoder.py` (fine-tune a pretrained encoder), `train_scratch.py` (byte-BiLSTM, optional distillation), `evaluate.py` (compare all models on the held-out test split) |
-| `tests/` | 106 unit/property tests (`uv run pytest`) |
+| `tests/` | 119 unit/property tests (`uv run pytest`) |
 | `ui/` | Minimal Streamlit UI: model picker, before/after view, latency readout |
 | `artifacts/` | Trained model checkpoints (`encoder` is the served model) |
 | `results/` | Evaluation reports: headline `eval_results.{json,md}`, exploration sweeps in `exploration_results.{json,md}` |

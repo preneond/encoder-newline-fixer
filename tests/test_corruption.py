@@ -1,5 +1,7 @@
 import random
 
+import pytest
+
 from newlinefix.corruption import CorruptionConfig, make_example, render_corrupted
 from newlinefix.gaps import JOIN, GapText, gaps_to_text, normalize, text_to_gaps
 
@@ -48,17 +50,17 @@ def test_short_words_never_split():
     assert JOIN not in labels
 
 
-def test_rendered_input_preserves_word_sequence():
+@pytest.mark.parametrize(("p_spurious", "p_keep"), [(0.0, 0.0), (1.0, 1.0), (0.3, 0.3)])
+def test_rendered_input_preserves_word_sequence(p_spurious: float, p_keep: float):
     rng = random.Random(4)
-    for p_spurious, p_keep in [(0.0, 0.0), (1.0, 1.0), (0.3, 0.3)]:
-        cfg = CorruptionConfig(
-            p_word_split=0.2, p_spurious_newline=p_spurious, p_keep_true_newline=p_keep
-        )
-        for _ in range(30):
-            clean = _random_clean_text(rng)
-            words, labels = make_example(clean, rng, cfg)
-            rendered = render_corrupted(words, labels, rng, cfg)
-            assert text_to_gaps(rendered).words == words
+    cfg = CorruptionConfig(
+        p_word_split=0.2, p_spurious_newline=p_spurious, p_keep_true_newline=p_keep
+    )
+    for _ in range(30):
+        clean = _random_clean_text(rng)
+        words, labels = make_example(clean, rng, cfg)
+        rendered = render_corrupted(words, labels, rng, cfg)
+        assert text_to_gaps(rendered).words == words
 
 
 def test_end_to_end_shape_matches_readme_example():
