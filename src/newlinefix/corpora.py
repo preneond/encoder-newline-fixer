@@ -122,6 +122,8 @@ def build_wikipedia_doc(title: str, body: str) -> str:
 
 def split_for_text(text: str, val_frac: float, test_frac: float) -> str:
     """Deterministic content-keyed split: identical text always lands in one split."""
+    # md5 for stability (same split on every platform/run), not security; the first
+    # 8 digest bytes give a uniform float in [0, 1) to compare against the fractions.
     digest = hashlib.md5(text.encode("utf-8")).digest()
     u = int.from_bytes(digest[:8], "big") / 2.0**64
     if u < test_frac:
@@ -179,6 +181,8 @@ def iter_wikitext_docs(max_docs: int, seed: int) -> Iterator[dict]:
     if max_docs <= 0:
         return
     dataset = _load_streaming("wikimedia/wikipedia", name="20231101.en")
+    # A full shuffle is impossible on a stream; a rolling buffer mixes locally so the
+    # sample is not just the dump's first articles.
     shuffled = dataset.shuffle(seed=seed, buffer_size=500)
     raw_docs = (build_wikipedia_doc(row["title"], row["text"]) for row in shuffled)
     yield from _emit_canonical(raw_docs, "wikipedia", max_docs)

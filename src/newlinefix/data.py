@@ -47,7 +47,7 @@ def doc_to_windows(
     for start in range(0, len(words), max_words):
         window_words = words[start : start + max_words]
         if len(window_words) < 2:
-            continue
+            continue  # a single leftover word has no gap to classify
         yield window_words, labels[start : start + len(window_words) - 1]
 
 

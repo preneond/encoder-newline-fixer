@@ -122,6 +122,8 @@ def build_examples(texts: list[str], seed: int, cfg: CorruptionConfig) -> list[E
     examples: list[Example] = []
     for i, text in enumerate(tqdm(texts, desc="corrupting", unit="doc")):
         clean = normalize(text)
+        # One rng per document (prime stride): doc i's corruption never depends on how
+        # many documents precede it, so per-doc results are stable under --limit.
         rng = random.Random(seed * 100_003 + i)
         words, true_labels = make_example(text_to_gaps(clean), rng, cfg)
         input_text = render_corrupted(words, true_labels, rng, cfg)
@@ -172,6 +174,7 @@ def evaluate_model(name: str, predictor: GapPredictor, examples: list[Example]) 
         "mean_windowdiff": sum(wd_values) / len(wd_values) if wd_values else float("nan"),
         "mean_edit_similarity": sum(sims) / n,
         "exact_match_rate": exact / n,
+        # max() guards the near-instant baselines against division by zero.
         "words_per_sec": total_words / max(total_time, 1e-9),
         "mean_latency_ms": 1000.0 * total_time / n,
         "confusion_matrix": cm.tolist(),

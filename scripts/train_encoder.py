@@ -257,6 +257,7 @@ def main(**kwargs: Any) -> None:
     warmup_steps = max(1, int(total_steps * cfg.warmup_frac))
 
     def lr_lambda(step: int) -> float:
+        """Linear warmup to the peak lr, then linear decay to zero."""
         if step < warmup_steps:
             return step / warmup_steps
         return max(0.0, (total_steps - step) / max(1, total_steps - warmup_steps))

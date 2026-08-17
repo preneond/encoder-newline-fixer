@@ -44,6 +44,7 @@ def make_example(
     """
     words: list[str] = []
     labels: list[int] = []
+    # A split needs two non-empty halves, so words shorter than 2 chars never split.
     min_split_len = max(cfg.min_split_len, 2)
     for i, word in enumerate(clean.words):
         if len(word) >= min_split_len and rng.random() < cfg.p_word_split:

@@ -103,6 +103,8 @@ class EncoderGapPredictor(GapPredictor):
             labels: list[int] = []
             for i in range(len(words) - 1):
                 pos = positions[i]
+                # Left word truncated away by the 512-token cap: no logits exist for
+                # this gap, so fall back to the overwhelming majority class.
                 labels.append(SPACE if pos is None else int(preds[b, pos]))
             out.append(labels)
         return out
