@@ -1,7 +1,7 @@
 """Dataset assembly: canonical documents (JSONL) -> corrupted training windows.
 
 Documents are stored one JSON object per line: {"text": <canonical text>, "source": <str>}.
-Corpus acquisition lives in ``newlinefix.corpora``; this module is corpus-agnostic.
+Corpus acquisition lives in ``newlinefix.corpus``; this module is corpus-agnostic.
 """
 
 import json

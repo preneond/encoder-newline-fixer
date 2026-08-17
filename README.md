@@ -105,7 +105,7 @@ Reproducing the full pipeline (data → training → evaluation) is documented i
 
 | Path | What's there |
 |---|---|
-| `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpora.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), HTTP service (`api.py`), models (`models/`) |
+| `src/newlinefix/` | Library: gap framing (`gaps.py`), corpus streaming/cleaning (`corpus.py`), self-supervised corruption (`corruption.py`), windowed prediction (`predict.py`), metrics (`metrics.py`), distillation (`distill.py`), HTTP service (`api.py`), models (`models/`) |
 | `scripts/` | CLIs: `prepare_data.py` (build corpus), `train_encoder.py` (fine-tune a pretrained encoder), `train_scratch.py` (byte-BiLSTM, optional distillation), `evaluate.py` (compare all models on the held-out test split) |
 | `tests/` | 125 unit/property/service tests (`uv run pytest`) |
 | `ui/` | Minimal Streamlit UI: model picker, before/after view, latency readout |

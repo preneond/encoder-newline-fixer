@@ -17,7 +17,7 @@ from rich.console import Console
 from rich.table import Table
 from tqdm import tqdm
 
-from newlinefix.corpora import iter_markdown_docs, iter_wikitext_docs, split_for_text
+from newlinefix.corpus import iter_markdown_docs, iter_wikitext_docs, split_for_text
 from newlinefix.data import write_documents
 from newlinefix.gaps import NEWLINE, PARA, SPACE, text_to_gaps
 

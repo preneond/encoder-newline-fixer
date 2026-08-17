@@ -2,7 +2,7 @@
 
 import pytest
 
-from newlinefix.corpora import (
+from newlinefix.corpus import (
     MAX_DOC_WORDS,
     MIN_DOC_WORDS,
     _emit_canonical,
